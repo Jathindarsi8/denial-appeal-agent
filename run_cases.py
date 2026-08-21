@@ -65,6 +65,28 @@ CASES = [
         ),
         "escalate",
     ),
+        (
+        "non-covered charge with contradicting evidence",
+        DenialRecord(
+            claim_id="CLM-100045",
+            patient_id="SYNTH-004",
+            payer="Synthetic Health Plan",
+            amount=2450.00,
+            carc="96",
+            rarc="N130",
+            payer_explanation=(
+                "This service is not covered under the member's benefit plan."
+            ),
+            documentation_summary=(
+                "Prior authorization reference PA-88213 was approved by the payer on "
+                "2026-06-02 for this exact procedure code. The member's benefit summary "
+                "lists the service as covered when medically necessary. The treating "
+                "clinician documented the indication, and the payer's own approval "
+                "letter is on file."
+            ),
+        ),
+        "escalate",
+    ),
 ]
 
 
