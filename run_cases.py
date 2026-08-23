@@ -44,7 +44,7 @@ CASES = [
             payer_explanation="This charge is not covered under the member's benefit plan.",
             documentation_summary=STRONG_DOCUMENTATION,
         ),
-        "escalate",
+        "do_not_appeal",
     ),
     (
         "unmapped denial code",
