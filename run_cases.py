@@ -1,20 +1,15 @@
 """
-Day 1 verification: three cases that should take three different paths.
+Day 2 verification.
 
-    1. CARC 50, strong documentation  -> appeal authorized
-    2. CARC 96, strong documentation  -> model may propose appeal, guardrail refuses
-    3. CARC 99, unmapped              -> escalates before the model is ever called
-
-Case 2 is the important one. It is where the deterministic layer overrides a
-plausible-looking model judgment.
+Same four cases as Day 1, plus one designed to make the model reach for a tool.
+What's new: the trace now shows which tools the model chose to call, and why.
 """
 
 from agent import (
     DenialAppealAgent,
     DenialCodeLookup,
     DenialRecord,
-    JudgeModel,
-    PolicyRetriever,
+    ModelClient,
 )
 
 STRONG_DOCUMENTATION = (
@@ -65,7 +60,7 @@ CASES = [
         ),
         "escalate",
     ),
-        (
+    (
         "non-covered charge with contradicting evidence",
         DenialRecord(
             claim_id="CLM-100045",
@@ -74,9 +69,7 @@ CASES = [
             amount=2450.00,
             carc="96",
             rarc="N130",
-            payer_explanation=(
-                "This service is not covered under the member's benefit plan."
-            ),
+            payer_explanation="This service is not covered under the member's benefit plan.",
             documentation_summary=(
                 "Prior authorization reference PA-88213 was approved by the payer on "
                 "2026-06-02 for this exact procedure code. The member's benefit summary "
@@ -87,22 +80,45 @@ CASES = [
         ),
         "escalate",
     ),
+    (
+        "authorization missing, PA referenced in notes",
+        DenialRecord(
+            claim_id="CLM-100046",
+            patient_id="SYNTH-005",
+            payer="Synthetic Health Plan",
+            amount=1375.00,
+            carc="197",
+            rarc=None,
+            payer_explanation=(
+                "Precertification was not obtained prior to the service being rendered."
+            ),
+            documentation_summary=(
+                "Scheduling notes reference prior authorization PA-77104 obtained before "
+                "the date of service. The authorization number was not included on the "
+                "original claim submission."
+            ),
+        ),
+        None,  # open case - whatever it does, the trace is the point
+    ),
 ]
 
 
 def main() -> None:
     agent = DenialAppealAgent(
         code_lookup=DenialCodeLookup(),
-        judge=JudgeModel(),
-        policy_retriever=PolicyRetriever(),
+        model=ModelClient(),
     )
 
-    failures = 0
+    mismatches = 0
+    checked = 0
 
     for label, denial, expected in CASES:
-        print("=" * 70)
-        print(f"CASE: {label}   (expecting: {expected})")
-        print("=" * 70)
+        print("=" * 72)
+        header = f"CASE: {label}"
+        if expected:
+            header += f"   (expecting: {expected})"
+        print(header)
+        print("=" * 72)
 
         state = agent.run(denial)
         actual = state.decision.value if state.decision else "none"
@@ -112,20 +128,22 @@ def main() -> None:
 
         print(f"\ndecision:    {actual}")
         print(f"stop_reason: {state.stop_reason}")
+        print(f"tools used:  {', '.join(state.tools_called) or '(none)'}")
 
-        if actual != expected:
-            failures += 1
-            print(f"\n*** MISMATCH: expected {expected}, got {actual}")
+        if expected:
+            checked += 1
+            if actual != expected:
+                mismatches += 1
+                print(f"\n*** MISMATCH: expected {expected}, got {actual}")
 
         print()
 
-    print("=" * 70)
-    if failures:
-        print(f"{failures} of {len(CASES)} cases did not behave as expected.")
-        print("Read the trace above before changing anything -- the disagreement")
-        print("is information, not necessarily a bug in the guardrails.")
+    print("=" * 72)
+    if mismatches:
+        print(f"{mismatches} of {checked} checked cases did not behave as expected.")
+        print("Read the traces above before changing anything.")
     else:
-        print(f"All {len(CASES)} cases behaved as expected. Day 1 complete.")
+        print(f"All {checked} checked cases behaved as expected. Day 2 complete.")
 
 
 if __name__ == "__main__":

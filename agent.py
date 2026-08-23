@@ -1,26 +1,34 @@
 """
 Denial triage + appeal drafting agent.
 
-Day 1: real agent loop.
-    denial -> deterministic code lookup
-           -> model judgment (structured)
-           -> deterministic guardrail validation
-           -> next action
+Day 2: real tool use.
 
-The model owns judgment. The guardrail layer owns liability boundaries.
-The model can propose an action; only the guardrail layer can authorize it.
+    denial
+      -> deterministic CARC lookup (always first, never the model's choice)
+      -> model turn
+           |- requests a tool  -> loop runs it, appends the observation,
+           |                      hands control back to the model
+           `- returns judgment -> deterministic guardrail validation
+      -> draft appeal / escalate / stop
+
+The model decides what it needs to know. The loop decides what actually runs.
+The guardrails decide what it's allowed to do with the answer.
+
+Retry with exponential backoff is in here early, because the free tier rate
+limits at 5 requests per minute and a five-case run blows straight past that.
 """
 
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal, Optional
+from typing import Callable, Literal, Optional
 
 from dotenv import load_dotenv
-from openai import OpenAI
-from pydantic import BaseModel, Field
+from openai import InternalServerError, OpenAI, RateLimitError
+from pydantic import BaseModel, Field, ValidationError
 
 load_dotenv()
 
@@ -38,20 +46,13 @@ DenialCategory = Literal[
     "other",
 ]
 
+ToolName = Literal["retrieve_policy", "check_prior_authorization"]
+
 
 class Decision(str, Enum):
     APPEAL = "appeal"
     DO_NOT_APPEAL = "do_not_appeal"
     ESCALATE = "escalate"
-
-
-class Step(str, Enum):
-    LOOKUP_CODE = "lookup_code"
-    JUDGE = "judge"
-    VALIDATE = "validate"
-    GATHER_RATIONALE = "gather_rationale"
-    DRAFT_APPEAL = "draft_appeal"
-    STOP = "stop"
 
 
 @dataclass
@@ -66,29 +67,37 @@ class DenialRecord:
     documentation_summary: str
 
 
-class DenialJudgment(BaseModel):
-    """What the model is allowed to have an opinion about."""
+class ModelAction(BaseModel):
+    """One model turn. Either it wants a tool, or it's ready to judge."""
 
-    denial_category: DenialCategory
-    root_cause: str = Field(description="One sentence: why this claim was denied.")
-    proposed_decision: Literal["appeal", "do_not_appeal", "escalate"]
-    confidence: float = Field(ge=0.0, le=1.0)
-    reasoning_summary: str
-    needs_policy_lookup: bool
+    action: Literal["call_tool", "judge"]
+
+    # action == "call_tool"
+    tool: Optional[ToolName] = None
+    tool_reason: Optional[str] = None
+
+    # action == "judge"
+    denial_category: Optional[DenialCategory] = None
+    root_cause: Optional[str] = None
+    proposed_decision: Optional[Literal["appeal", "do_not_appeal", "escalate"]] = None
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    reasoning_summary: Optional[str] = None
 
 
 @dataclass
 class AgentState:
     denial: DenialRecord
-    step: Step = Step.LOOKUP_CODE
     steps_taken: int = 0
 
     code_category: Optional[str] = None
     code_meaning: Optional[str] = None
-    judgment: Optional[DenialJudgment] = None
 
+    messages: list[dict] = field(default_factory=list)
+    tools_called: list[str] = field(default_factory=list)
+    observations: list[str] = field(default_factory=list)
+
+    judgment: Optional[ModelAction] = None
     decision: Optional[Decision] = None
-    rationale: list[str] = field(default_factory=list)
     appeal_draft: Optional[str] = None
     stop_reason: Optional[str] = None
     trace: list[str] = field(default_factory=list)
@@ -100,29 +109,19 @@ class AgentState:
 # ---------------------------------------------------------------------- tools
 
 class DenialCodeLookup:
-    """Deterministic CARC lookup. Runs before the model so judgment has context."""
+    """Deterministic. Always runs first. The model never chooses whether to."""
 
     CODES: dict[str, tuple[str, str]] = {
-        "16": (
-            "missing_or_invalid_information",
-            "Claim/service lacks information or contains submission/billing errors.",
-        ),
-        "29": (
-            "timely_filing",
-            "The time limit for filing this claim has expired.",
-        ),
-        "50": (
-            "medical_necessity",
-            "Service was denied as not medically necessary by the payer.",
-        ),
-        "96": (
-            "noncovered_charge",
-            "Charge is considered non-covered under the payer's policy.",
-        ),
-        "197": (
-            "authorization_missing",
-            "Precertification, authorization, or notification was absent.",
-        ),
+        "16": ("missing_or_invalid_information",
+               "Claim/service lacks information or contains submission errors."),
+        "29": ("timely_filing",
+               "The time limit for filing this claim has expired."),
+        "50": ("medical_necessity",
+               "Service was denied as not medically necessary by the payer."),
+        "96": ("noncovered_charge",
+               "Charge is considered non-covered under the payer's policy."),
+        "197": ("authorization_missing",
+                "Precertification, authorization, or notification was absent."),
     }
 
     def lookup(self, carc: str) -> tuple[Optional[str], str]:
@@ -131,40 +130,82 @@ class DenialCodeLookup:
         return None, f"No trusted local mapping is available for CARC {carc}."
 
 
-class PolicyRetriever:
-    """Day 2 replaces this with retrieval over real payer policy documents."""
+def retrieve_policy(denial: DenialRecord, category: Optional[str]) -> str:
+    """Stubbed policy retrieval. Real retrieval lands later in week 1."""
+    if category == "medical_necessity":
+        return (
+            "Policy MN-04: services denied as not medically necessary may be "
+            "appealed with clinical documentation showing the indication and "
+            "prior conservative treatment. No exact policy text retrieved yet."
+        )
+    if category == "noncovered_charge":
+        return (
+            "Policy NC-11: non-covered services are excluded by the member's "
+            "benefit plan. Clinical documentation does not create coverage. "
+            "A benefit exception requires a separate written determination."
+        )
+    return "No policy statements found for this denial category."
 
-    def retrieve(self, denial: DenialRecord, category: str) -> list[str]:
-        if category == "medical_necessity":
-            return [
-                "Submitted documentation indicates the service was ordered by the treating clinician.",
-                "The record contains clinical findings supporting the stated indication.",
-            ]
-        return []
+
+def check_prior_authorization(denial: DenialRecord, category: Optional[str]) -> str:
+    """Stubbed PA check. Reads what the claim record actually says."""
+    text = denial.documentation_summary.lower()
+    if "prior authorization" in text or "pa-" in text:
+        return (
+            "A prior authorization reference appears in the claim documentation. "
+            "This system cannot confirm it against the payer's authorization "
+            "database. Treat as unverified."
+        )
+    return "No prior authorization reference found in the claim documentation."
 
 
-# ------------------------------------------------------------ model judgment
+TOOLS: dict[str, Callable[[DenialRecord, Optional[str]], str]] = {
+    "retrieve_policy": retrieve_policy,
+    "check_prior_authorization": check_prior_authorization,
+}
 
-JUDGE_SYSTEM_PROMPT = """\
-You are a claims denial analyst. You read a denied medical claim and produce a
-structured judgment.
 
-You do not decide anything final. A deterministic validation layer reviews your
-proposed decision and may override it. Your job is accurate assessment, not
-advocacy.
+# ------------------------------------------------------------ model interface
+
+SYSTEM_PROMPT = """\
+You are a claims denial analyst working one claim at a time.
+
+You do not make final decisions. A deterministic validation layer reviews
+whatever you propose and can override it. Your job is accurate assessment.
+
+Each turn you return JSON, and you choose one of two actions.
+
+To gather information:
+{"action": "call_tool", "tool": "<tool name>", "tool_reason": "<one sentence>"}
+
+Available tools:
+  retrieve_policy            - payer policy statements for this denial category
+  check_prior_authorization  - whether the claim record references a prior auth
+
+To give your assessment:
+{"action": "judge",
+ "denial_category": one of ["medical_necessity", "missing_or_invalid_information",
+    "noncovered_charge", "authorization_missing", "timely_filing",
+    "duplicate_claim", "coding_error", "other"],
+ "root_cause": "one sentence",
+ "proposed_decision": one of ["appeal", "do_not_appeal", "escalate"],
+ "confidence": number between 0.0 and 1.0,
+ "reasoning_summary": "two or three sentences"}
 
 Rules:
-- Propose "appeal" only when the record contains concrete clinical or factual
-  support that contradicts the stated denial reason.
-- Propose "do_not_appeal" when the denial appears correct on the record.
-- Propose "escalate" whenever the record is ambiguous, incomplete, or the
-  decision depends on information you do not have.
-- Never assert payer policy language. You have not read the payer's policy.
-- Set confidence honestly. Low confidence is a useful signal, not a failure.
+- Call a tool only when the answer would actually change your assessment.
+- Never call the same tool twice.
+- Propose "appeal" only with concrete support that contradicts the stated reason.
+- Propose "escalate" when the record is ambiguous or depends on information you
+  do not have.
+- Never assert payer policy language you have not retrieved.
+- Set confidence honestly. Low confidence is useful information, not failure.
+
+Return JSON only. No prose outside the JSON.
 """
 
 
-class JudgeModel:
+class ModelClient:
     def __init__(self, model: Optional[str] = None):
         self.client = OpenAI(
             api_key=os.environ["LLM_API_KEY"],
@@ -173,93 +214,65 @@ class JudgeModel:
                 "https://generativelanguage.googleapis.com/v1beta/openai/",
             ),
         )
-        self.model = model or os.getenv("LLM_MODEL", "gemini-3-flash")
+        self.model = model or os.getenv("LLM_MODEL", "gemini-3.5-flash")
 
-    def judge(self, denial: DenialRecord, code_meaning: str) -> DenialJudgment:
-        user_content = f"""\
-Claim ID: {denial.claim_id}
-Payer: {denial.payer}
-Denied amount: ${denial.amount:,.2f}
-CARC: {denial.carc}  RARC: {denial.rarc or "N/A"}
+    def step(self, messages: list[dict]) -> ModelAction:
+        """One model turn, with exponential backoff on rate limits and 503s."""
+        delay = 2
+        for attempt in range(6):
+            try:
+                completion = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,  # type: ignore
+                    response_format={"type": "json_object"},
+                    temperature=0,
+                )
+                raw = completion.choices[0].message.content
+                if raw is None:
+                    raise ValueError("Model returned no content")
+                return ModelAction.model_validate_json(raw)
+            except (RateLimitError, InternalServerError):
+                if attempt == 5:
+                    raise
+                print(f"  ...upstream busy, waiting {delay}s")
+                time.sleep(delay)
+                delay = min(delay * 2, 32)
+        raise RuntimeError("unreachable")
 
-Standard meaning of this denial code:
-{code_meaning}
-
-Payer's stated explanation:
-{denial.payer_explanation}
-
-Documentation on file:
-{denial.documentation_summary or "(none)"}
-
-Respond with JSON only, matching this schema exactly:
-{{
-  "denial_category": one of ["medical_necessity", "missing_or_invalid_information",
-      "noncovered_charge", "authorization_missing", "timely_filing",
-      "duplicate_claim", "coding_error", "other"],
-  "root_cause": "one sentence",
-  "proposed_decision": one of ["appeal", "do_not_appeal", "escalate"],
-  "confidence": number between 0.0 and 1.0,
-  "reasoning_summary": "two or three sentences",
-  "needs_policy_lookup": true or false
-}}
-"""
-        completion = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0,
-        )
-        raw = completion.choices[0].message.content
-        if raw is None:
-            raise ValueError("Model returned no content")
-        return DenialJudgment.model_validate_json(raw)
 
 # ------------------------------------------------------------------ guardrails
 
 CONFIDENCE_FLOOR = 0.6
-
-# Categories where an appeal can never be authorized from the record alone.
 NEVER_AUTO_APPEAL = {"noncovered_charge", "timely_filing", "duplicate_claim", "other"}
 
 
 def validate_action(state: AgentState) -> tuple[Decision, str]:
-    """
-    The model proposed an action. Decide whether it is allowed to take it.
-
-    Every rule here is a verifiable condition, not a vibe. Confidence is a soft
-    input only -- self-reported confidence from a language model is not
-    calibrated and must never be the sole gate on a liability boundary.
-    """
-    judgment = state.judgment
-    assert judgment is not None
+    """Every rule here is a verifiable condition, not a vibe."""
+    j = state.judgment
+    assert j is not None
 
     if state.code_category is None:
         return Decision.ESCALATE, "unmapped_denial_code"
 
-    if judgment.denial_category != state.code_category:
+    if j.denial_category != state.code_category:
         return Decision.ESCALATE, (
-            f"category_disagreement:code={state.code_category},"
-            f"model={judgment.denial_category}"
+            f"category_disagreement:code={state.code_category},model={j.denial_category}"
         )
 
-    if judgment.proposed_decision == "escalate":
+    if j.proposed_decision == "escalate":
         return Decision.ESCALATE, "model_requested_escalation"
 
-    if judgment.proposed_decision == "do_not_appeal":
+    if j.proposed_decision == "do_not_appeal":
         return Decision.DO_NOT_APPEAL, "denial_appears_correct_on_record"
 
-    # From here the model proposed an appeal.
-    if judgment.denial_category in NEVER_AUTO_APPEAL:
-        return Decision.ESCALATE, f"category_requires_human_review:{judgment.denial_category}"
+    if j.denial_category in NEVER_AUTO_APPEAL:
+        return Decision.ESCALATE, f"category_requires_human_review:{j.denial_category}"
 
     if not state.denial.documentation_summary.strip():
         return Decision.ESCALATE, "appeal_proposed_without_supporting_documentation"
 
-    if judgment.confidence < CONFIDENCE_FLOOR:
-        return Decision.ESCALATE, f"confidence_below_floor:{judgment.confidence:.2f}"
+    if j.confidence is None or j.confidence < CONFIDENCE_FLOOR:
+        return Decision.ESCALATE, f"confidence_below_floor:{j.confidence}"
 
     return Decision.APPEAL, "appeal_authorized"
 
@@ -267,157 +280,137 @@ def validate_action(state: AgentState) -> tuple[Decision, str]:
 # ----------------------------------------------------------------- agent loop
 
 class DenialAppealAgent:
-    def __init__(
-        self,
-        code_lookup: DenialCodeLookup,
-        judge: JudgeModel,
-        policy_retriever: PolicyRetriever,
-        max_steps: int = 6,
-    ):
+    def __init__(self, code_lookup: DenialCodeLookup, model: ModelClient,
+                 max_steps: int = 8):
         self.code_lookup = code_lookup
-        self.judge = judge
-        self.policy_retriever = policy_retriever
+        self.model = model
         self.max_steps = max_steps
 
     def run(self, denial: DenialRecord) -> AgentState:
         state = AgentState(denial=denial)
 
-        while state.step != Step.STOP:
-            if state.steps_taken >= self.max_steps:
-                state.decision = Decision.ESCALATE
-                state.stop_reason = "step_limit_reached"
-                state.step = Step.STOP
-                break
-
-            state.steps_taken += 1
-            handler = {
-                Step.LOOKUP_CODE: self._lookup_code,
-                Step.JUDGE: self._judge,
-                Step.VALIDATE: self._validate,
-                Step.GATHER_RATIONALE: self._gather_rationale,
-                Step.DRAFT_APPEAL: self._draft_appeal,
-            }.get(state.step)
-
-            if handler is None:
-                state.decision = Decision.ESCALATE
-                state.stop_reason = f"unexpected_step:{state.step}"
-                state.step = Step.STOP
-                break
-
-            handler(state)
-
-        return state
-
-    def _lookup_code(self, state: AgentState) -> None:
-        category, meaning = self.code_lookup.lookup(state.denial.carc)
+        # Step 0: deterministic lookup, before the model is involved at all.
+        category, meaning = self.code_lookup.lookup(denial.carc)
         state.code_category = category
         state.code_meaning = meaning
         state.log(f"code lookup -> {category or 'UNMAPPED'}")
-        state.step = Step.JUDGE
 
-    def _judge(self, state: AgentState) -> None:
-        state.judgment = self.judge.judge(state.denial, state.code_meaning or "")
-        state.log(
-            f"model proposed {state.judgment.proposed_decision} "
-            f"(category={state.judgment.denial_category}, "
-            f"confidence={state.judgment.confidence:.2f})"
-        )
-        state.step = Step.VALIDATE
+        if category is None:
+            state.decision = Decision.ESCALATE
+            state.stop_reason = "unmapped_denial_code"
+            state.log("guardrail -> escalate (unmapped_denial_code)")
+            return state
 
-    def _validate(self, state: AgentState) -> None:
+        state.messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": self._initial_context(state)},
+        ]
+
+        while True:
+            if state.steps_taken >= self.max_steps:
+                state.decision = Decision.ESCALATE
+                state.stop_reason = "step_limit_reached"
+                state.log("step limit reached -> escalate")
+                return state
+
+            state.steps_taken += 1
+
+            try:
+                action = self.model.step(state.messages)
+            except ValidationError as exc:
+                state.decision = Decision.ESCALATE
+                state.stop_reason = "model_output_failed_validation"
+                state.log(f"invalid model output -> escalate ({exc.error_count()} errors)")
+                return state
+
+            if action.action == "call_tool":
+                self._handle_tool_call(state, action)
+                continue
+
+            state.judgment = action
+            state.log(
+                f"model judged {action.proposed_decision} "
+                f"(category={action.denial_category}, confidence={action.confidence})"
+            )
+            break
+
         decision, reason = validate_action(state)
         state.decision = decision
+        state.stop_reason = reason
         state.log(f"guardrail -> {decision.value} ({reason})")
 
-        if decision != Decision.APPEAL:
-            state.stop_reason = reason
-            state.step = Step.STOP
-            return
+        if decision == Decision.APPEAL:
+            self._draft_appeal(state)
 
-        state.step = (
-            Step.GATHER_RATIONALE
-            if state.judgment is not None and state.judgment.needs_policy_lookup
-            else Step.DRAFT_APPEAL
+        return state
+
+    def _initial_context(self, state: AgentState) -> str:
+        d = state.denial
+        return f"""\
+Claim ID: {d.claim_id}
+Payer: {d.payer}
+Denied amount: ${d.amount:,.2f}
+CARC: {d.carc}  RARC: {d.rarc or "N/A"}
+
+Standard meaning of this denial code:
+{state.code_meaning}
+
+Payer's stated explanation:
+{d.payer_explanation}
+
+Documentation on file:
+{d.documentation_summary or "(none)"}
+"""
+
+    def _handle_tool_call(self, state: AgentState, action: ModelAction) -> None:
+        tool = action.tool
+
+        if tool is None or tool not in TOOLS:
+            observation = f"Error: '{tool}' is not an available tool."
+            state.log(f"model requested unknown tool '{tool}' -> refused")
+        elif tool in state.tools_called:
+            observation = f"Error: {tool} has already been called this run."
+            state.log(f"model repeated tool '{tool}' -> refused")
+        else:
+            observation = TOOLS[tool](state.denial, state.code_category)
+            state.tools_called.append(tool)
+            state.observations.append(f"{tool}: {observation}")
+            state.log(f"model called {tool} ({action.tool_reason or 'no reason given'})")
+
+        state.messages.append(
+            {"role": "assistant", "content": action.model_dump_json(exclude_none=True)}
         )
-
-    def _gather_rationale(self, state: AgentState) -> None:
-        state.rationale = self.policy_retriever.retrieve(
-            state.denial, state.code_category or ""
+        state.messages.append(
+            {"role": "user", "content": f"Tool result:\n{observation}"}
         )
-        state.log(f"retrieved {len(state.rationale)} supporting statements")
-
-        if not state.rationale:
-            state.decision = Decision.ESCALATE
-            state.stop_reason = "no_supporting_rationale_retrieved"
-            state.step = Step.STOP
-            return
-
-        state.step = Step.DRAFT_APPEAL
 
     def _draft_appeal(self, state: AgentState) -> None:
-        denial = state.denial
-        judgment = state.judgment
-        assert judgment is not None
-        bullets = "\n".join(f"- {item}" for item in state.rationale) or "- (none retrieved)"
+        d = state.denial
+        j = state.judgment
+        assert j is not None
+
+        observations = "\n".join(f"- {o}" for o in state.observations) or "- (none)"
 
         state.appeal_draft = f"""\
-RE: Appeal of denied claim {denial.claim_id}
+RE: Appeal of denied claim {d.claim_id}
 
-Payer: {denial.payer}
-Denied amount: ${denial.amount:,.2f}
-CARC: {denial.carc}   RARC: {denial.rarc or "N/A"}
+Payer: {d.payer}
+Denied amount: ${d.amount:,.2f}
+CARC: {d.carc}   RARC: {d.rarc or "N/A"}
 
 Stated denial reason:
 {state.code_meaning}
 
 Assessed root cause:
-{judgment.root_cause}
+{j.root_cause}
 
-We request reconsideration on the following basis:
-
-{bullets}
+Supporting information gathered:
+{observations}
 
 Documentation summary:
-{denial.documentation_summary}
+{d.documentation_summary}
 
-NOTE: This draft does not quote payer policy language. An authoritative policy
-retrieval tool is not yet connected. Human review is required before submission.
+NOTE: policy language here has not been verified against the payer's published
+policy. Human review is required before submission.
 """
-        state.stop_reason = "appeal_draft_created_requires_human_review"
-        state.log("appeal draft created")
-        state.step = Step.STOP
-
-
-# ----------------------------------------------------------------------- demo
-
-if __name__ == "__main__":
-    denial = DenialRecord(
-        claim_id="CLM-100042",
-        patient_id="SYNTH-001",
-        payer="Synthetic Health Plan",
-        amount=1840.00,
-        carc="50",
-        rarc=None,
-        payer_explanation="The payer states that the service was not medically necessary.",
-        documentation_summary=(
-            "The treating clinician documented persistent symptoms, prior conservative "
-            "treatment failure, and the clinical indication for the ordered service."
-        ),
-    )
-
-    agent = DenialAppealAgent(
-        code_lookup=DenialCodeLookup(),
-        judge=JudgeModel(),
-        policy_retriever=PolicyRetriever(),
-    )
-
-    result = agent.run(denial)
-
-    print(f"decision:    {result.decision.value if result.decision else None}")
-    print(f"stop_reason: {result.stop_reason}")
-    print(f"steps:       {result.steps_taken}")
-    print("\n--- TRACE ---")
-    for line in result.trace:
-        print(line)
-    print("\n--- APPEAL DRAFT ---")
-    print(result.appeal_draft or "(none)")
+        state.log("appeal draft created") 
