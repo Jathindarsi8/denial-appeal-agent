@@ -1,0 +1,67 @@
+{
+  "model": "gemini-3.6-flash",
+  "case": "CLM-100045",
+  "runs": 10,
+  "results": [
+    {
+      "run": 1,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 2,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 3,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 4,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 5,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 6,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 7,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 8,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 9,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 10,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    }
+  ]
+}

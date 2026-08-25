@@ -73,9 +73,14 @@ reserved for calls that are genuinely optional.
 It also never quotes payer policy language it hasn't actually retrieved. Every
 generated draft says so and requires human review before submission.
 
-**On confidence:** a self-reported score from a language model isn't calibrated.
-It's a soft input here, never the only gate on a liability boundary. Whether it
-predicts correctness at all is something the week 3 evaluations will measure.
+## On confidence
+
+The guardrail escalates when the model reports confidence below 0.6. That
+threshold was picked by feel, so day 3 went looking for what the number
+actually tracks. See the build log below — the short version is that it tracks
+how much the agent has read, not how clear the case is.
+
+Confidence is a soft input here, never the only gate on a liability boundary.
 
 ## Running it
 
@@ -87,7 +92,7 @@ pip install openai pydantic python-dotenv
 
 ```
 LLM_API_KEY=your-key
-LLM_MODEL=gemini-3.5-flash
+LLM_MODEL=gemini-3.6-flash
 ```
 
 Currently running on Google AI Studio's free Gemini tier through its
@@ -96,8 +101,9 @@ the environment, so any OpenAI-compatible provider — OpenAI, Groq, OpenRouter,
 a local Ollama model — works without touching the code.
 
 ```bash
-python agent.py        # single case
-python run_cases.py    # five cases
+python agent.py                          # single case
+python run_cases.py                      # five cases
+python calibrate.py gemini-3.6-flash 10  # calibration harness
 ```
 
 ## Build log
@@ -119,10 +125,35 @@ five requests a minute, and a five-case run went straight past it.
 
 The interesting result: on a plain non-covered denial the model retrieved the
 policy, read that clinical documentation doesn't create coverage, and changed
-its own judgment from appeal to do-not-appeal. The same category with an
-approved prior auth in the record still produced appeal, and the guardrail
-overrode it. Tools changed what the model concluded, not just how it explained
-itself.
+its own judgment from appeal to do-not-appeal. Tools changed what the model
+concluded, not just how it explained itself.
+
+**Day 3** — Calibration harness. Same case, same prompt, temperature 0, ten
+runs, tools deliberately removed. Records decision and confidence, writes the
+raw results to JSON.
+
+```
+gemini-3.6-flash   appeal 10/10   confidence 0.95 every run   stdev 0.000
+gemini-3.7-flash   appeal          confidence 0.95            (quota cut it short)
+```
+
+Two different models, identical answer, zero variance. So the model isn't the
+variable — which was the day 2 hypothesis, and it was wrong.
+
+The only remaining difference is the tools. The run that returned 0.75 on day 2
+had the policy lookup available. It read that documentation doesn't create
+coverage, and got *less* sure. The runs above had nothing to read and were
+certain.
+
+So the confidence number is tracking how much the agent has read, not how clear
+the case is. A better-informed agent reports lower confidence, which pushes it
+toward escalation. The 0.6 floor knows none of this.
+
+Still missing: ten runs *with* tools, to confirm 0.75 is stable rather than a
+single draw.
+
+Also learned that twenty requests per day per model is a real methodology
+constraint. Measuring the agent costs more than running it.
 
 ## Plan
 
@@ -137,6 +168,6 @@ itself.
 
 The deterministic layer still decides most cases. Whether the model is
 contributing real signal, or just agreeing with a lookup table, is what week 3's
-evaluation set exists to find out. Day 2 is the first evidence it might be
-contributing something — one case where it reached a better answer than the
-test expected. One case isn't a result. Numbers get posted either way.
+evaluation set exists to find out. Day 3 turned one guardrail input — the
+confidence floor — from an assumption into a measured question. The rest of the
+rules haven't been tested that way yet.
