@@ -1,0 +1,109 @@
+{
+  "model": "gemini-3.6-flash",
+  "case": "CLM-100045",
+  "tools_enabled": true,
+  "confidence_floor": 0.6,
+  "runs": 5,
+  "results": [
+    {
+      "run": 1,
+      "final_decision": "escalate",
+      "stop_reason": "model_requested_escalation",
+      "tools_called": [
+        "retrieve_policy",
+        "check_prior_authorization"
+      ],
+      "steps_taken": 3,
+      "proposed_decision": "escalate",
+      "confidence": 0.85,
+      "denial_category": "noncovered_charge",
+      "trace": [
+        "[step 0] code lookup -> noncovered_charge",
+        "[step 1] model called retrieve_policy (I need to check the payer policy for non-covered charges and benefit exclusions to evaluate if the denial contradicts policy language.)",
+        "[step 2] model called check_prior_authorization (I need to verify the prior authorization details and status on record for PA-88213.)",
+        "[step 3] model judged escalate (category=noncovered_charge, confidence=0.85)",
+        "[step 3] guardrail -> escalate (model_requested_escalation)"
+      ]
+    },
+    {
+      "run": 2,
+      "final_decision": "escalate",
+      "stop_reason": "model_requested_escalation",
+      "tools_called": [
+        "retrieve_policy",
+        "check_prior_authorization"
+      ],
+      "steps_taken": 3,
+      "proposed_decision": "escalate",
+      "confidence": 0.75,
+      "denial_category": "noncovered_charge",
+      "trace": [
+        "[step 0] code lookup -> noncovered_charge",
+        "[step 1] model called retrieve_policy (I need to check the payer's policy statement regarding coverage and prior authorization requirements for this non-covered charge denial.)",
+        "[step 2] model called check_prior_authorization (I need to verify whether the claim record properly links the approved prior authorization PA-88213.)",
+        "[step 3] model judged escalate (category=noncovered_charge, confidence=0.75)",
+        "[step 3] guardrail -> escalate (model_requested_escalation)"
+      ]
+    },
+    {
+      "run": 3,
+      "final_decision": "escalate",
+      "stop_reason": "model_requested_escalation",
+      "tools_called": [
+        "retrieve_policy",
+        "check_prior_authorization"
+      ],
+      "steps_taken": 3,
+      "proposed_decision": "escalate",
+      "confidence": 0.8,
+      "denial_category": "noncovered_charge",
+      "trace": [
+        "[step 0] code lookup -> noncovered_charge",
+        "[step 1] model called retrieve_policy (Retrieve payer policy statements to verify coverage criteria and benefit language for this procedure.)",
+        "[step 2] model called check_prior_authorization (Verify the prior authorization record details and status in the payer system.)",
+        "[step 3] model judged escalate (category=noncovered_charge, confidence=0.8)",
+        "[step 3] guardrail -> escalate (model_requested_escalation)"
+      ]
+    },
+    {
+      "run": 4,
+      "final_decision": "escalate",
+      "stop_reason": "category_requires_human_review:noncovered_charge",
+      "tools_called": [
+        "check_prior_authorization",
+        "retrieve_policy"
+      ],
+      "steps_taken": 3,
+      "proposed_decision": "appeal",
+      "confidence": 0.85,
+      "denial_category": "noncovered_charge",
+      "trace": [
+        "[step 0] code lookup -> noncovered_charge",
+        "[step 1] model called check_prior_authorization (Verify whether the prior authorization PA-88213 is properly linked to the claim record and active for this date of service.)",
+        "[step 2] model called retrieve_policy (Retrieve payer policy statements to determine if the specific service/procedure is covered under member benefits.)",
+        "[step 3] model judged appeal (category=noncovered_charge, confidence=0.85)",
+        "[step 3] guardrail -> escalate (category_requires_human_review:noncovered_charge)"
+      ]
+    },
+    {
+      "run": 5,
+      "final_decision": "escalate",
+      "stop_reason": "category_requires_human_review:noncovered_charge",
+      "tools_called": [
+        "retrieve_policy",
+        "check_prior_authorization"
+      ],
+      "steps_taken": 3,
+      "proposed_decision": "appeal",
+      "confidence": 0.85,
+      "denial_category": "noncovered_charge",
+      "trace": [
+        "[step 0] code lookup -> noncovered_charge",
+        "[step 1] model called retrieve_policy (I need to retrieve the payer's policy statements regarding non-covered charges and benefit plan exclusions.)",
+        "[step 2] model called check_prior_authorization (I need to verify whether the prior authorization reference PA-88213 is attached to the claim record.)",
+        "[step 3] model judged appeal (category=noncovered_charge, confidence=0.85)",
+        "[step 3] guardrail -> escalate (category_requires_human_review:noncovered_charge)"
+      ]
+    }
+  ]
+}

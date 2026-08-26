@@ -65,6 +65,7 @@ reserved for calls that are genuinely optional.
 | Model's category disagrees with the code lookup | Escalate |
 | Appeal proposed with no supporting documentation | Escalate |
 | Category where the record alone can't justify an appeal | Escalate |
+| **Appeal proposed with nothing retrieved** | **Escalate** |
 | Model confidence below floor | Escalate |
 | Step limit reached | Escalate |
 | Model requests an unknown tool | Refused, and told why |
@@ -76,9 +77,14 @@ generated draft says so and requires human review before submission.
 ## On confidence
 
 The guardrail escalates when the model reports confidence below 0.6. That
-threshold was picked by feel, so day 3 went looking for what the number
-actually tracks. See the build log below — the short version is that it tracks
-how much the agent has read, not how clear the case is.
+threshold was picked by feel, so days 3 and 4 went looking for what the number
+actually tracks. Two findings, both in the build log:
+
+1. The score goes **down** as the agent reads more. Empty context reads as
+   certainty. So retrieval is now a precondition for authorization, and
+   confidence is only consulted afterwards.
+2. On the test case, the floor never fired once. Every escalation came from a
+   deterministic category rule instead.
 
 Confidence is a soft input here, never the only gate on a liability boundary.
 
@@ -101,9 +107,10 @@ the environment, so any OpenAI-compatible provider — OpenAI, Groq, OpenRouter,
 a local Ollama model — works without touching the code.
 
 ```bash
-python agent.py                          # single case
-python run_cases.py                      # five cases
-python calibrate.py gemini-3.6-flash 10  # calibration harness
+python agent.py                                # single case
+python run_cases.py                            # five cases
+python calibrate.py gemini-3.6-flash 10        # one call per run, no tools
+python calibrate_tools.py gemini-3.6-flash 5   # full agent, tools enabled
 ```
 
 ## Build log
@@ -140,20 +147,49 @@ gemini-3.7-flash   appeal          confidence 0.95            (quota cut it shor
 Two different models, identical answer, zero variance. So the model isn't the
 variable — which was the day 2 hypothesis, and it was wrong.
 
-The only remaining difference is the tools. The run that returned 0.75 on day 2
-had the policy lookup available. It read that documentation doesn't create
-coverage, and got *less* sure. The runs above had nothing to read and were
-certain.
-
-So the confidence number is tracking how much the agent has read, not how clear
-the case is. A better-informed agent reports lower confidence, which pushes it
-toward escalation. The 0.6 floor knows none of this.
-
-Still missing: ten runs *with* tools, to confirm 0.75 is stable rather than a
-single draw.
+The remaining difference was the tools. The run that returned 0.75 on day 2 had
+the policy lookup available, read that documentation doesn't create coverage,
+and got *less* sure. So the confidence number tracks how much the agent has
+read, not how clear the case is.
 
 Also learned that twenty requests per day per model is a real methodology
 constraint. Measuring the agent costs more than running it.
+
+**Day 4** — Measured the other path. `calibrate_tools.py` drives the real agent
+rather than bypassing it, so what's measured is the production path including
+guardrails. Five runs, tools enabled, same case and model as day 3.
+
+```
+proposed   escalate 3/5   appeal 2/5
+confidence 0.85  0.75  0.80  0.85  0.85     stdev 0.045
+final      escalate 5/5
+```
+
+Three things came out of that, and only the first was the one being looked for.
+
+*The multi-turn path isn't deterministic.* One call at temperature 0 returns
+0.95 every time. Several calls in sequence return a spread, and the proposed
+decision flips between runs. Four of the five runs called the same tools in the
+same order and still disagreed with each other, so this isn't the agent taking
+different routes — it compounds inside the conversation itself.
+
+*So day 3's "0.75 with tools" was one draw, not a stable value.* The no-tools
+side of that comparison holds up. The with-tools side was noisier than the
+write-up implied.
+
+*The confidence floor never fired.* Not on a single run. Every escalation came
+from the CARC 96 category rule — non-covered charges can't be auto-appealed,
+full stop. On the two runs where the model proposed an appeal at 0.85,
+confidence would have let them straight through. The thing actually holding the
+line was a lookup table written on day 1.
+
+One guardrail change followed: an appeal can no longer be authorized from a
+judgment made with nothing retrieved, regardless of the score. Evidence is a
+precondition; confidence is a check applied after it.
+
+The consequence for week 3 is larger. If one run can flip the decision, then a
+golden dataset scored once per case measures nothing. Each case needs repeated
+runs and a pass *rate*.
 
 ## Plan
 
@@ -166,8 +202,8 @@ constraint. Measuring the agent costs more than running it.
 
 ## Honest caveat
 
-The deterministic layer still decides most cases. Whether the model is
-contributing real signal, or just agreeing with a lookup table, is what week 3's
-evaluation set exists to find out. Day 3 turned one guardrail input — the
-confidence floor — from an assumption into a measured question. The rest of the
-rules haven't been tested that way yet.
+The deterministic layer still decides most cases — day 4 showed it decided
+*every* case on the one claim that was measured. Whether the model contributes
+real signal, or just agrees with a lookup table, is what week 3's evaluation set
+exists to find out. Two guardrail inputs have now been turned from assumptions
+into measured questions. The rest haven't.

@@ -1,0 +1,25 @@
+{
+  "model": "gemini-3.6-flash",
+  "case": "CLM-100045",
+  "runs": 3,
+  "results": [
+    {
+      "run": 1,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 2,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    },
+    {
+      "run": 3,
+      "decision": "appeal",
+      "confidence": 0.95,
+      "category": "noncovered_charge"
+    }
+  ]
+}
