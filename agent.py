@@ -1,8 +1,6 @@
 """
 Denial triage + appeal drafting agent.
 
-Day 2: real tool use.
-
     denial
       -> deterministic CARC lookup (always first, never the model's choice)
       -> model turn
@@ -10,6 +8,7 @@ Day 2: real tool use.
            |                      hands control back to the model
            `- returns judgment -> deterministic guardrail validation
       -> draft appeal / escalate / stop
+      -> audit record written, always
 
 The model decides what it needs to know. The loop decides what actually runs.
 The guardrails decide what it's allowed to do with the answer.
@@ -268,8 +267,8 @@ def validate_action(state: AgentState) -> tuple[Decision, str]:
     if j.denial_category in NEVER_AUTO_APPEAL:
         return Decision.ESCALATE, f"category_requires_human_review:{j.denial_category}"
 
-        if not state.denial.documentation_summary.strip():
-            return Decision.ESCALATE, "appeal_proposed_without_supporting_documentation"
+    if not state.denial.documentation_summary.strip():
+        return Decision.ESCALATE, "appeal_proposed_without_supporting_documentation"
 
     # Day 4. Measured: with no tools the model returns 0.95 every single time.
     # With tools it returns 0.75-0.85 and sometimes changes its decision. The
@@ -288,13 +287,32 @@ def validate_action(state: AgentState) -> tuple[Decision, str]:
 # ----------------------------------------------------------------- agent loop
 
 class DenialAppealAgent:
-    def __init__(self, code_lookup: DenialCodeLookup, model: ModelClient,
-                 max_steps: int = 8):
+    def __init__(
+        self,
+        code_lookup: DenialCodeLookup,
+        model: ModelClient,
+        max_steps: int = 8,
+        audit_log=None,
+    ):
         self.code_lookup = code_lookup
         self.model = model
         self.max_steps = max_steps
+        self.audit_log = audit_log
 
     def run(self, denial: DenialRecord) -> AgentState:
+        """Run the agent, then record what happened. Auditing is not optional.
+
+        Day 5. Every exit path from _run lands here, so a run cannot finish
+        without leaving a record. Pass audit_log=False to disable it, which
+        only the unit tests do.
+        """
+        state = self._run(denial)
+        if self.audit_log is not False:
+            from audit import record_run
+            record_run(state, self.model.model, self.audit_log)
+        return state
+
+    def _run(self, denial: DenialRecord) -> AgentState:
         state = AgentState(denial=denial)
 
         # Step 0: deterministic lookup, before the model is involved at all.
@@ -421,4 +439,4 @@ Documentation summary:
 NOTE: policy language here has not been verified against the payer's published
 policy. Human review is required before submission.
 """
-        state.log("appeal draft created") 
+        state.log("appeal draft created")

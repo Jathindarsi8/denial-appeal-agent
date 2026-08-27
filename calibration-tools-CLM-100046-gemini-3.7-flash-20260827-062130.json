@@ -1,0 +1,84 @@
+{
+  "model": "gemini-3.7-flash",
+  "case": "CLM-100046",
+  "carc": "197",
+  "tools_enabled": true,
+  "confidence_floor": 0.6,
+  "runs": 5,
+  "results": [
+    {
+      "run": 1,
+      "final_decision": "escalate",
+      "stop_reason": "appeal_proposed_without_retrieved_evidence",
+      "tools_called": [],
+      "steps_taken": 1,
+      "proposed_decision": "appeal",
+      "confidence": 0.95,
+      "denial_category": "authorization_missing",
+      "appeal_drafted": false,
+      "trace": [
+        "[step 0] code lookup -> authorization_missing",
+        "[step 1] model judged appeal (category=authorization_missing, confidence=0.95)",
+        "[step 1] guardrail -> escalate (appeal_proposed_without_retrieved_evidence)"
+      ]
+    },
+    {
+      "run": 2,
+      "final_decision": "appeal",
+      "stop_reason": "appeal_authorized:evidence=2",
+      "tools_called": [
+        "check_prior_authorization",
+        "retrieve_policy"
+      ],
+      "steps_taken": 3,
+      "proposed_decision": "appeal",
+      "confidence": 0.85,
+      "denial_category": "authorization_missing",
+      "appeal_drafted": true,
+      "trace": [
+        "[step 0] code lookup -> authorization_missing",
+        "[step 1] model called check_prior_authorization (Verify whether prior authorization PA-77104 is valid and recorded in the system for this service date.)",
+        "[step 2] model called retrieve_policy (Retrieve payer policy on missing authorization numbers on submitted claims.)",
+        "[step 3] model judged appeal (category=authorization_missing, confidence=0.85)",
+        "[step 3] guardrail -> appeal (appeal_authorized:evidence=2)",
+        "[step 3] appeal draft created"
+      ]
+    },
+    {
+      "run": 3,
+      "final_decision": "escalate",
+      "stop_reason": "appeal_proposed_without_retrieved_evidence",
+      "tools_called": [],
+      "steps_taken": 1,
+      "proposed_decision": "appeal",
+      "confidence": 0.95,
+      "denial_category": "authorization_missing",
+      "appeal_drafted": false,
+      "trace": [
+        "[step 0] code lookup -> authorization_missing",
+        "[step 1] model judged appeal (category=authorization_missing, confidence=0.95)",
+        "[step 1] guardrail -> escalate (appeal_proposed_without_retrieved_evidence)"
+      ]
+    },
+    {
+      "run": 4,
+      "final_decision": "escalate",
+      "stop_reason": "appeal_proposed_without_retrieved_evidence",
+      "tools_called": [],
+      "steps_taken": 1,
+      "proposed_decision": "appeal",
+      "confidence": 0.95,
+      "denial_category": "authorization_missing",
+      "appeal_drafted": false,
+      "trace": [
+        "[step 0] code lookup -> authorization_missing",
+        "[step 1] model judged appeal (category=authorization_missing, confidence=0.95)",
+        "[step 1] guardrail -> escalate (appeal_proposed_without_retrieved_evidence)"
+      ]
+    },
+    {
+      "run": 5,
+      "error": "RateLimitError"
+    }
+  ]
+}
