@@ -6,10 +6,10 @@ A 30-day build, in public, including what breaks.
 
 A medical claim gets denied. Someone has to read the denial, work out what
 actually went wrong, decide whether it's worth appealing, and write the appeal.
-That's 20–45 minutes a claim. Denials that never get appealed are money the
+That's 20 to 45 minutes a claim. Denials that never get appealed are money the
 provider simply doesn't collect.
 
-It's a document-in, judgment, document-out job — the shape an agent can do,
+It's a document-in, judgment, document-out job. The shape an agent can do,
 as long as it knows when to stop.
 
 Public CARC/RARC denial codes, synthetic claim data.
@@ -24,6 +24,7 @@ denial record
        |                     hands control back to the model
        `- returns judgment -> deterministic guardrail validation
   -> draft appeal / escalate / stop
+  -> audit record written, always
 ```
 
 The model handles judgment: what category the denial falls into, the likely
@@ -65,7 +66,7 @@ reserved for calls that are genuinely optional.
 | Model's category disagrees with the code lookup | Escalate |
 | Appeal proposed with no supporting documentation | Escalate |
 | Category where the record alone can't justify an appeal | Escalate |
-| **Appeal proposed with nothing retrieved** | **Escalate** |
+| Appeal proposed with nothing retrieved | Escalate |
 | Model confidence below floor | Escalate |
 | Step limit reached | Escalate |
 | Model requests an unknown tool | Refused, and told why |
@@ -77,16 +78,33 @@ generated draft says so and requires human review before submission.
 ## On confidence
 
 The guardrail escalates when the model reports confidence below 0.6. That
-threshold was picked by feel, so days 3 and 4 went looking for what the number
-actually tracks. Two findings, both in the build log:
+threshold was picked by feel, so days 3 to 5 went looking for what the number
+actually tracks. Three findings, all in the build log:
 
-1. The score goes **down** as the agent reads more. Empty context reads as
-   certainty. So retrieval is now a precondition for authorization, and
-   confidence is only consulted afterwards.
-2. On the test case, the floor never fired once. Every escalation came from a
-   deterministic category rule instead.
+1. The score goes **down** as the agent reads more. Empty context produces
+   0.95, repeatedly, across two models and two different claims. Retrieval is
+   therefore a precondition for authorization, and confidence is only
+   consulted afterwards.
+2. Across every run recorded so far, the floor has never once been the rule
+   that decided anything.
+3. The score is stable within a single model call and unstable across a
+   multi-turn run.
 
 Confidence is a soft input here, never the only gate on a liability boundary.
+
+## Audit trail
+
+Every run appends one JSON object to `runs/runs.jsonl`: the claim, the model,
+which tools ran in order, the observations they returned, what the model
+proposed and at what confidence, what was actually authorized, and which
+specific rule decided it.
+
+The hook lives in `run()` rather than in each calling script, so a run cannot
+finish without leaving a record.
+
+```bash
+python audit.py           # summarise every recorded run
+```
 
 ## Running it
 
@@ -103,14 +121,15 @@ LLM_MODEL=gemini-3.6-flash
 
 Currently running on Google AI Studio's free Gemini tier through its
 OpenAI-compatible endpoint. `LLM_BASE_URL` and `LLM_MODEL` are both read from
-the environment, so any OpenAI-compatible provider — OpenAI, Groq, OpenRouter,
-a local Ollama model — works without touching the code.
+the environment, so any OpenAI-compatible provider works without touching the
+code.
 
 ```bash
-python agent.py                                # single case
-python run_cases.py                            # five cases
-python calibrate.py gemini-3.6-flash 10        # one call per run, no tools
-python calibrate_tools.py gemini-3.6-flash 5   # full agent, tools enabled
+python agent.py                                       # single case
+python run_cases.py                                   # five cases
+python calibrate.py gemini-3.6-flash 10               # one call per run, no tools
+python calibrate_tools.py gemini-3.7-flash 5 100046   # full agent, tools enabled
+python audit.py                                       # read the run log
 ```
 
 ## Build log
@@ -136,8 +155,7 @@ its own judgment from appeal to do-not-appeal. Tools changed what the model
 concluded, not just how it explained itself.
 
 **Day 3** — Calibration harness. Same case, same prompt, temperature 0, ten
-runs, tools deliberately removed. Records decision and confidence, writes the
-raw results to JSON.
+runs, tools deliberately removed.
 
 ```
 gemini-3.6-flash   appeal 10/10   confidence 0.95 every run   stdev 0.000
@@ -145,7 +163,7 @@ gemini-3.7-flash   appeal          confidence 0.95            (quota cut it shor
 ```
 
 Two different models, identical answer, zero variance. So the model isn't the
-variable — which was the day 2 hypothesis, and it was wrong.
+variable, which was the day 2 hypothesis, and it was wrong.
 
 The remaining difference was the tools. The run that returned 0.75 on day 2 had
 the policy lookup available, read that documentation doesn't create coverage,
@@ -165,45 +183,78 @@ confidence 0.85  0.75  0.80  0.85  0.85     stdev 0.045
 final      escalate 5/5
 ```
 
-Three things came out of that, and only the first was the one being looked for.
-
 *The multi-turn path isn't deterministic.* One call at temperature 0 returns
 0.95 every time. Several calls in sequence return a spread, and the proposed
 decision flips between runs. Four of the five runs called the same tools in the
 same order and still disagreed with each other, so this isn't the agent taking
-different routes — it compounds inside the conversation itself.
+different routes. It compounds inside the conversation itself.
 
 *So day 3's "0.75 with tools" was one draw, not a stable value.* The no-tools
 side of that comparison holds up. The with-tools side was noisier than the
 write-up implied.
 
 *The confidence floor never fired.* Not on a single run. Every escalation came
-from the CARC 96 category rule — non-covered charges can't be auto-appealed,
-full stop. On the two runs where the model proposed an appeal at 0.85,
-confidence would have let them straight through. The thing actually holding the
-line was a lookup table written on day 1.
+from the CARC 96 category rule. On the two runs where the model proposed an
+appeal at 0.85, confidence would have let them straight through.
 
 One guardrail change followed: an appeal can no longer be authorized from a
 judgment made with nothing retrieved, regardless of the score. Evidence is a
 precondition; confidence is a check applied after it.
 
-The consequence for week 3 is larger. If one run can flip the decision, then a
-golden dataset scored once per case measures nothing. Each case needs repeated
-runs and a pass *rate*.
+**Day 5** — Audit trail. Every run now writes a structured record. Two reasons
+it landed here: a human picking up an escalation needs to know which run they
+are looking at, and day 4 showed the runs differ. And week 3 can't compute a
+pass rate over runs that were never persisted.
+
+Then five runs of CLM-100046 on gemini-3.7-flash. That case matters because
+`authorization_missing` is not in `NEVER_AUTO_APPEAL`, so nothing deterministic
+stands behind the model.
+
+```
+run 1   no tools     0.95   blocked
+run 2   both tools   0.85   appeal drafted
+run 3   no tools     0.95   blocked
+run 4   no tools     0.95   blocked
+run 5   rate limit, died
+```
+
+Three of the four completed runs called no tools at all. Nothing errored; the
+agent simply didn't retrieve anything before deciding. So it isn't only the
+judgment that varies between runs, it's whether the agent does any research at
+all.
+
+All three of those reported 0.95. Same value day 3 found on a different claim
+and a different denial code with an empty context, which is the first time that
+finding has reproduced on data it wasn't derived from.
+
+All three were stopped by `appeal_proposed_without_retrieved_evidence`, the rule
+added on day 4. Without it, three appeals get authorized on this claim off a
+judgment made from reading nothing, and the confidence floor would not have
+blocked any of them.
+
+Open: why the agent retrieves on some runs and not others, given identical
+input and settings. Unresolved.
 
 ## Plan
 
 | Week | Goal |
 |---|---|
-| 1 | Complete a real loop — tools, guardrails, memory, audit trail |
-| 2 | Survive failure — structured outputs, checkpointing, resume mid-task |
-| 3 | Be measurable — golden dataset, evaluations, cost per run |
-| 4 | Be defensible — explain it to an engineer and to a non-technical executive |
+| 1 | Complete a real loop: tools, guardrails, memory, audit trail |
+| 2 | Survive failure: structured outputs, checkpointing, resume mid-task |
+| 3 | Be measurable: golden dataset, evaluations, cost per run |
+| 4 | Be defensible: explain it to an engineer and to a non-technical executive |
+
+Week 3 has already changed shape. If one run can flip the decision, an
+evaluation that scores each case once is measuring noise. Each case needs
+repeated runs and a pass rate.
 
 ## Honest caveat
 
-The deterministic layer still decides most cases — day 4 showed it decided
-*every* case on the one claim that was measured. Whether the model contributes
-real signal, or just agrees with a lookup table, is what week 3's evaluation set
-exists to find out. Two guardrail inputs have now been turned from assumptions
-into measured questions. The rest haven't.
+The deterministic layer still decides most cases. Day 4 showed it decided every
+case on the one claim measured, and day 5 showed it catching three of four runs
+on another. Whether the model contributes real signal, or just agrees with a
+lookup table, is what week 3's evaluation set exists to find out.
+
+Sample sizes here are small: four to five completed runs per case, one or two
+models, a handful of claims. Enough to change how the system is built. Not
+enough to claim any of it generalises.
