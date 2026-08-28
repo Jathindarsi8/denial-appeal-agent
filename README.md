@@ -109,7 +109,9 @@ python audit.py           # summarise every recorded run
 ## Running it
 
 ```bash
-pip install openai pydantic python-dotenv
+pip install openai pydantic python-dotenv scikit-learn
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install sentence-transformers   # optional; falls back to TF-IDF without it
 ```
 
 `.env` (not committed):
@@ -130,6 +132,9 @@ python run_cases.py                                   # five cases
 python calibrate.py gemini-3.6-flash 10               # one call per run, no tools
 python calibrate_tools.py gemini-3.7-flash 5 100046   # full agent, tools enabled
 python audit.py                                       # read the run log
+python build_corpus.py                                # write the policy corpus
+python retrieval.py                                   # build index, test queries
+python probe_retrieval.py gemini-3.7-flash 3          # is retrieval load-bearing
 ```
 
 ## Build log
@@ -234,6 +239,58 @@ blocked any of them.
 
 Open: why the agent retrieves on some runs and not others, given identical
 input and settings. Unresolved.
+
+**Day 6** — Real retrieval. `retrieve_policy` was an if-statement returning two
+hardcoded sentences with invented policy numbers. Every result before today
+rests on the agent "retrieving" from that stub, so nothing measured before day 6
+is directly comparable to anything measured after.
+
+Replaced with a corpus and a retriever: 14 documents, 61 chunks, chunked on the
+documents' own section headings. CARC references use the real X12 code meanings;
+payer policies are synthetic and labelled as such in every file. Embeddings run
+locally through `all-MiniLM-L6-v2`, so retrieval costs nothing against the daily
+API quota. A TF-IDF backend sits behind the same interface as a fallback.
+
+Three retrieval bugs, all found by testing rather than reading the code.
+
+*The category filter wasn't filtering.* Only the CARC documents declared a
+category, so every policy document passed through untagged. A medical necessity
+query returned the non-covered policy as its top hit, which is the exact
+confusion this project exists to prevent.
+
+*Documents without `##` headings became one chunk each.* The CARC references
+were single long chunks, and length normalisation buried them under short
+unrelated passages. A timely filing query ranked an appeal-format section on
+"Representation" above the document about filing deadlines.
+
+*The top k came back as k chunks of one document.* This was the important one.
+A policy stating that this payer no longer accepts appeals on the
+authorization-not-submitted basis could not reach the top three on a claim about
+exactly that scenario, because all three slots were taken by one file. Fixed
+with a per-document cap and a second query: the claim text finds documents about
+what the claim *is*, and a separate decision-oriented query finds documents about
+what can be *done* with it. Those two sets share almost no vocabulary.
+
+Embeddings versus TF-IDF, measured on the same query: "claim filed after the
+deadline" scored 0.113 lexically and 0.695 semantically. Lexical search cannot
+match "deadline" to "time limit" or "filed" to "filing".
+
+Then a test of whether the model actually reads what comes back: inject one
+policy passage saying the appeal route has been withdrawn, and see whether the
+decision moves off its recorded baseline of appeal at 0.85. The passage now
+retrieves correctly. The runs died on the daily quota before producing an
+answer, so this is open.
+
+Open: whether retrieval is load-bearing or decoration. Every case in the full
+run landed on the same decision, with the same confidence, as it did with the
+stub. That is either because the corpus says what the stub said, or because the
+model is going on the denial category and ignoring the retrieved text. Not yet
+distinguishable.
+
+Also open: the top-ranked passage on the authorization case is a general
+requirements section rather than the one describing the claim's actual
+situation. Retrieval is finding the right document and the wrong part of it.
+Reranking is the next step.
 
 ## Plan
 
