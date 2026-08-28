@@ -130,20 +130,29 @@ class DenialCodeLookup:
 
 
 def retrieve_policy(denial: DenialRecord, category: Optional[str]) -> str:
-    """Stubbed policy retrieval. Real retrieval lands later in week 1."""
-    if category == "medical_necessity":
-        return (
-            "Policy MN-04: services denied as not medically necessary may be "
-            "appealed with clinical documentation showing the indication and "
-            "prior conservative treatment. No exact policy text retrieved yet."
-        )
-    if category == "noncovered_charge":
-        return (
-            "Policy NC-11: non-covered services are excluded by the member's "
-            "benefit plan. Clinical documentation does not create coverage. "
-            "A benefit exception requires a separate written determination."
-        )
-    return "No policy statements found for this denial category."
+    """Day 6. Real retrieval over the policy corpus in policies/.
+
+    Was a hardcoded if-statement returning invented policy numbers. Every
+    result before today rests on the agent 'retrieving' from that stub, so
+    nothing measured before day 6 is comparable to anything measured after.
+
+    The query is the payer's own words plus what's in the claim file, which is
+    what a human would search on. Category comes from the deterministic code
+    lookup, not from the model, so the model cannot widen its own search.
+    """
+    from retrieval import get_retriever
+
+    query = f"{denial.payer_explanation} {denial.documentation_summary}"
+    return get_retriever().retrieve_for_agent(
+        query,
+        category=category,
+        k=3,
+        extra_queries=[
+            "can this denial be appealed, what routes are available, "
+            "are appeals accepted on this basis"
+        ],
+        max_per_doc=1,
+    )
 
 
 def check_prior_authorization(denial: DenialRecord, category: Optional[str]) -> str:
