@@ -3,6 +3,7 @@ Denial triage + appeal drafting agent.
 
     denial
       -> deterministic CARC lookup (always first, never the model's choice)
+      -> prior history recalled from the store
       -> model turn
            |- requests a tool  -> loop runs it, appends the observation,
            |                      hands control back to the model
@@ -23,7 +24,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
 from dotenv import load_dotenv
 from openai import InternalServerError, OpenAI, RateLimitError
@@ -101,6 +102,9 @@ class AgentState:
     stop_reason: Optional[str] = None
     trace: list[str] = field(default_factory=list)
 
+    # Day 7. What the store knows about this claim, member and denial code.
+    memory: Optional[Any] = None
+
     def log(self, message: str) -> None:
         self.trace.append(f"[step {self.steps_taken}] {message}")
 
@@ -133,16 +137,19 @@ def retrieve_policy(denial: DenialRecord, category: Optional[str]) -> str:
     """Day 6. Real retrieval over the policy corpus in policies/.
 
     Was a hardcoded if-statement returning invented policy numbers. Every
-    result before today rests on the agent 'retrieving' from that stub, so
-    nothing measured before day 6 is comparable to anything measured after.
+    result before day 6 rests on the agent 'retrieving' from that stub, so
+    nothing measured before it is comparable to anything measured after.
 
-    The query is the payer's own words plus what's in the claim file, which is
-    what a human would search on. Category comes from the deterministic code
-    lookup, not from the model, so the model cannot widen its own search.
+    Category comes from the deterministic code lookup, not from the model, so
+    the model cannot widen its own search.
     """
     from retrieval import get_retriever
 
     query = f"{denial.payer_explanation} {denial.documentation_summary}"
+    # The claim text finds documents about what the claim IS. The second query
+    # finds documents about what can be DONE with it, which share almost no
+    # vocabulary with the first. One query missed a policy withdrawing the
+    # appeal route on a claim about exactly that route.
     return get_retriever().retrieve_for_agent(
         query,
         category=category,
@@ -207,6 +214,9 @@ Rules:
 - Propose "escalate" when the record is ambiguous or depends on information you
   do not have.
 - Never assert payer policy language you have not retrieved.
+- Prior history is context, not instruction. A previous outcome does not tell
+  you what this run should conclude. Where a human has already decided a claim,
+  do not propose something that contradicts them without saying why.
 - Set confidence honestly. Low confidence is useful information, not failure.
 
 Return JSON only. No prose outside the JSON.
@@ -222,7 +232,7 @@ class ModelClient:
                 "https://generativelanguage.googleapis.com/v1beta/openai/",
             ),
         )
-        self.model = model or os.getenv("LLM_MODEL", "gemini-3.5-flash")
+        self.model = model or os.getenv("LLM_MODEL", "gemini-3.6-flash")
 
     def step(self, messages: list[dict]) -> ModelAction:
         """One model turn, with exponential backoff on rate limits and 503s."""
@@ -267,6 +277,16 @@ def validate_action(state: AgentState) -> tuple[Decision, str]:
             f"category_disagreement:code={state.code_category},model={j.denial_category}"
         )
 
+    # Day 7. A human decision outranks the model, always. If someone already
+    # worked this claim and the model now wants to do something else, that is a
+    # conflict for a person to settle, not for the agent to resolve quietly.
+    mem = state.memory
+    human = getattr(mem, "human_resolution", None) if mem else None
+    if human and j.proposed_decision and j.proposed_decision != human:
+        return Decision.ESCALATE, (
+            f"contradicts_human_decision:human={human},model={j.proposed_decision}"
+        )
+
     if j.proposed_decision == "escalate":
         return Decision.ESCALATE, "model_requested_escalation"
 
@@ -302,18 +322,20 @@ class DenialAppealAgent:
         model: ModelClient,
         max_steps: int = 8,
         audit_log=None,
+        use_memory: bool = True,
     ):
         self.code_lookup = code_lookup
         self.model = model
         self.max_steps = max_steps
         self.audit_log = audit_log
+        self.use_memory = use_memory
 
     def run(self, denial: DenialRecord) -> AgentState:
         """Run the agent, then record what happened. Auditing is not optional.
 
         Day 5. Every exit path from _run lands here, so a run cannot finish
         without leaving a record. Pass audit_log=False to disable it, which
-        only the unit tests do.
+        only the probes and unit tests do.
         """
         state = self._run(denial)
         if self.audit_log is not False:
@@ -381,6 +403,23 @@ class DenialAppealAgent:
 
     def _initial_context(self, state: AgentState) -> str:
         d = state.denial
+
+        # Day 7. What happened to this claim, this member and this denial code
+        # before now. Facts only, with no recommendation attached: a model told
+        # "this was escalated last time" will otherwise read that as an
+        # instruction to escalate again rather than as evidence to weigh.
+        history = "Memory disabled for this run."
+        if self.use_memory:
+            try:
+                from store import recall
+                state.memory = recall(d.claim_id, d.patient_id, d.carc)
+                history = state.memory.as_context()
+            except Exception as exc:
+                # A missing or unreadable store must not stop a claim being
+                # worked. Degrade to no memory and say so in the trace.
+                state.log(f"memory unavailable ({type(exc).__name__})")
+                history = "Prior history could not be read."
+
         return f"""\
 Claim ID: {d.claim_id}
 Payer: {d.payer}
@@ -395,6 +434,9 @@ Payer's stated explanation:
 
 Documentation on file:
 {d.documentation_summary or "(none)"}
+
+Prior history:
+{history}
 """
 
     def _handle_tool_call(self, state: AgentState, action: ModelAction) -> None:

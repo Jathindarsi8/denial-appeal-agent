@@ -104,6 +104,17 @@ def record_run(state: AgentState, model: str,
     record = build_record(state, model)
     with open(target, "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+
+    # Day 7. JSONL stays the append-only raw log; SQLite is the queryable copy.
+    # A store that isn't reachable must not stop a claim being worked, so this
+    # fails quietly and the JSONL remains the source of truth.
+    try:
+        from store import record_run as store_run, upsert_claim
+        upsert_claim(state.denial)
+        store_run(record)
+    except Exception:
+        pass
+
     return record
 
 
