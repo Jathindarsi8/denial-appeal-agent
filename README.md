@@ -94,6 +94,26 @@ actually tracks. Three findings, all in the build log:
 
 Confidence is a soft input here, never the only gate on a liability boundary.
 
+## On evaluating this
+
+Three layers, and they answer different questions.
+
+*Did the right document come back at all.* `eval_retrieval.py`, 30 labelled
+queries, recall@1 and recall@3. Runs offline, costs no quota, and catches the
+class of bug that shipped on day 6.
+
+*Does the model actually use what came back.* Context ablation: plant a document
+that contradicts the model's prior and check whether the decision moves.
+`probe_retrieval.py`. Observing successful runs cannot answer this, because
+agreement makes "read it" and "ignored it" produce the same output.
+
+*Does it agree with a human.* The `resolutions` table is the shape of this and
+it is the layer that decides whether a system like this ships. Not yet built —
+that is week 3, and it needs claims a human has actually worked.
+
+All three have to be run repeatedly per case rather than once, because days 4,
+5 and 8 each showed a single run does not tell you what the system does.
+
 ## Audit trail
 
 Every run appends one JSON object to `runs/runs.jsonl`: the claim, the model,
@@ -147,6 +167,8 @@ python probe_retrieval.py gemini-3.7-flash 3          # is retrieval load-bearin
 python store.py init                                  # create the database
 python store.py stats                                 # what every run so far says
 python store.py history CLM-100046                    # one claim's full history
+python eval_retrieval.py --verbose                    # labelled retrieval set
+python check_second_query.py                          # does the second query earn its place
 ```
 
 ## Build log
@@ -362,6 +384,82 @@ no decision on any case. Two substantial additions to what the model can see,
 and not one outcome moved. That points at the day 6 open question rather than
 answering it — the model may be deciding largely from the deterministic category
 lookup, with everything else as decoration.
+
+**Day 8** — Answered the day 6 question, and was wrong about it first.
+
+The observational case for "retrieval is decoration" looked strong. CLM-100046,
+run on three separate days under three retrieval implementations: on 27 Aug the
+stub returned nothing at all for this denial category, on 28 Aug real retrieval
+returned the governing policy section, on 31 Aug better ranking returned a more
+precise passage. Appeal at 0.85 all three times. Nineteen logged runs behind it.
+
+That inference is invalid, and the flaw is structural rather than incidental.
+Every document retrieved across those runs agreed with what the model would
+have concluded anyway. Under agreement, "consulted the evidence" and "ignored
+the evidence" produce identical output. The two hypotheses are indistinguishable
+by construction, and no volume of successful runs separates them.
+
+Only contradiction discriminates. `probe_retrieval.py` plants one policy stating
+this payer no longer accepts appeals where an authorization existed but was
+omitted from the claim, then runs the case that policy governs.
+
+```
+baseline        appeal at 0.85, three days, two retrieval implementations
+with amendment  escalate, do_not_appeal, do_not_appeal
+decision moved  3 of 3
+cited the new policy in reasoning  3 of 3, one by document number
+```
+
+Retrieval is load-bearing. Nineteen observational runs supported a false
+conclusion; three adversarial runs corrected it in four minutes.
+
+The three runs split escalate / do_not_appeal / do_not_appeal, so retrieval
+being load-bearing and the run-to-run instability from days 4 and 5 are both
+true at once.
+
+*Retrieval evaluation.* `eval_retrieval.py`, 30 queries each labelled with the
+document that must come back. The labels are legitimate rather than invented —
+this corpus was written for this project, so which document answers which
+question is known. Includes a trap case worded like a medical necessity
+question but filed under `noncovered_charge`, because that confusion is the
+mistake the whole project exists to prevent.
+
+It found a live defect on its first run. General-guidance chunks tagged
+`Category: any` were being down-weighted unconditionally, including on queries
+with no category filter — where the query is itself general and nothing else
+can answer it. Three appeal-format queries were missing the appeal-format
+policy. The penalty now applies only when a category is named.
+
+```
+                    recall@1   recall@3
+tfidf                    80%       100%
+embeddings               97%       100%
+```
+
+*Re-examined the day 6 second query.* Against the labelled set it costs 3%
+recall@1 under embeddings and buys nothing: 100% and 100% without it. It was
+compensating for lexical search being unable to connect a claim's facts to a
+policy about appeal rights, and embeddings bridge most of that gap natively.
+
+But `check_second_query.py` tests the one case the eval doesn't cover: the
+planted contradiction, phrased entirely in appeal-process language, retrieved
+against a claim described in clinical and administrative terms. It does not
+surface without the second query — under lexical *or* semantic retrieval. The
+vocabulary gap survives the move to embeddings.
+
+So the second query stays, and the tradeoff is now measured rather than
+assumed. It costs precision on documents that corroborate the claim and buys
+recall on documents that dispute it. Only one of those two failure modes files
+a bad appeal.
+
+*Split the retry paths.* `RateLimitError` and `InternalServerError` were caught
+in one block retrying six times. One upstream 500 was therefore retried five
+times at 2, 4, 8, 16 and 32 seconds — five requests against a twenty-per-day
+budget, returning nothing, which then made the next two runs fail on quota. A
+429 is time-based and worth waiting out; a 500 means the upstream is unhealthy
+and retrying does not make it healthy. Rate limits now retry up to four times
+honouring the `retryDelay` the API actually sends (it asked for 57s on a day
+the backoff capped at 32), server errors retry twice then give up.
 
 ## Plan
 
