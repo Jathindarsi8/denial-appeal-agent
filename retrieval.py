@@ -162,11 +162,19 @@ class PolicyRetriever:
         search, so a timely-filing query can't surface a coverage policy."""
         scores = self.backend.scores(query)
 
-        # Chunks tagged "any" are general appeal guidance. They stay eligible,
-        # but a short general passage should not outrank a document written
-        # about the thing being asked. Discount rather than exclude.
+        # Chunks tagged "any" are general appeal guidance. When the caller has
+        # named a category, a short general passage should not outrank a
+        # document written about the thing being asked, so discount it.
+        #
+        # When no category is given the query IS general, and the penalty was
+        # halving the only document that could answer it. The retrieval eval
+        # caught this: three queries about appeal format, all missing the
+        # appeal format policy. The penalty only makes sense relative to
+        # topical competition that exists.
+        penalise_general = category is not None
         adjusted = [
-            (c, s * (GENERAL_PENALTY if c.category == "any" else 1.0))
+            (c, s * (GENERAL_PENALTY
+                     if (penalise_general and c.category == "any") else 1.0))
             for c, s in zip(self.chunks, scores)
         ]
         ranked = sorted(adjusted, key=lambda p: -p[1])

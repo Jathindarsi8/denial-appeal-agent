@@ -1,7 +1,10 @@
 """
-Day 6: is retrieval actually load-bearing?
+Day 8: is retrieval actually load-bearing?
 
-Real retrieval replaced the stub today and every case landed on the same
+Written on day 6, run on day 8 — the day 6 attempts died on the daily quota
+before producing an answer.
+
+Real retrieval replaced the stub on day 6 and every case landed on the same
 decision, with the same confidence, as it did with two hardcoded sentences.
 That has two possible explanations and they are not distinguishable from the
 run output:
@@ -21,7 +24,10 @@ answer. Then it runs the same case.
                           changed its mind after retrieving" result from this
                           project needs revisiting.
 
-Baseline for CLM-100046, recorded twice: appeal, 0.85, both tools called.
+Baseline for CLM-100046: appeal at 0.85, recorded across three days and
+two retrieval implementations. On 27 Aug the stub returned nothing at all for
+this category; on 28 and 31 Aug real retrieval returned the correct passage,
+then a better one. Same decision, same confidence, every time.
 
 The injected document is removed afterwards unless you pass --keep.
 
@@ -165,6 +171,10 @@ def main() -> None:
                 code_lookup=DenialCodeLookup(),
                 model=ModelClient(model=model_name),
                 audit_log=False,
+                # Day 8. CLM-100046 now has seven prior runs on record, all of
+                # them visible to the model through memory. Leaving that on
+                # would mean testing retrieval and history at the same time.
+                use_memory=False,
             )
             try:
                 state = a.run(CASE)

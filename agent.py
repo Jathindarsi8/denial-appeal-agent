@@ -27,7 +27,7 @@ from enum import Enum
 from typing import Any, Callable, Literal, Optional
 
 from dotenv import load_dotenv
-from openai import InternalServerError, OpenAI, RateLimitError
+from openai import APIStatusError, InternalServerError, OpenAI, RateLimitError
 from pydantic import BaseModel, Field, ValidationError
 
 load_dotenv()
@@ -234,10 +234,29 @@ class ModelClient:
         )
         self.model = model or os.getenv("LLM_MODEL", "gemini-3.6-flash")
 
+    # Day 8. These were one except block retrying six times, and it cost a
+    # whole day's budget. An upstream 500 got retried five times at 2, 4, 8,
+    # 16 and 32 seconds. Every retry is a request that counts, so one fault on
+    # the provider's side spent five of twenty daily calls and returned
+    # nothing, which then made the next two runs fail on quota. The two errors
+    # need opposite handling.
+    #
+    # 429  the limit is real and time-based, so waiting works. Google sends
+    #      retryDelay in the error; honour it rather than guessing, because
+    #      the guess capped at 32s when it had asked for 57.
+    # 500  the upstream is unhealthy. Retrying does not make it healthy, and
+    #      each attempt still costs budget. Try twice, then stop.
+    MAX_SERVER_ERROR_RETRIES = 2
+    MAX_RATE_LIMIT_RETRIES = 4
+
     def step(self, messages: list[dict]) -> ModelAction:
-        """One model turn, with exponential backoff on rate limits and 503s."""
+        """One model turn. Retries a rate limit patiently and an upstream fault
+        barely, because only one of the two is worth waiting out."""
+        server_errors = 0
+        rate_limits = 0
         delay = 2
-        for attempt in range(6):
+
+        while True:
             try:
                 completion = self.client.chat.completions.create(
                     model=self.model,
@@ -249,13 +268,47 @@ class ModelClient:
                 if raw is None:
                     raise ValueError("Model returned no content")
                 return ModelAction.model_validate_json(raw)
-            except (RateLimitError, InternalServerError):
-                if attempt == 5:
+
+            except RateLimitError as exc:
+                rate_limits += 1
+                if rate_limits > self.MAX_RATE_LIMIT_RETRIES:
                     raise
-                print(f"  ...upstream busy, waiting {delay}s")
-                time.sleep(delay)
-                delay = min(delay * 2, 32)
-        raise RuntimeError("unreachable")
+                wait = _retry_after(exc) or delay
+                print(f"  ...rate limited, waiting {wait:.0f}s "
+                      f"(attempt {rate_limits}/{self.MAX_RATE_LIMIT_RETRIES})")
+                time.sleep(wait)
+                delay = min(delay * 2, 64)
+
+            except InternalServerError:
+                server_errors += 1
+                if server_errors > self.MAX_SERVER_ERROR_RETRIES:
+                    print(f"  ...upstream failed {server_errors}x, giving up "
+                          f"rather than spending more budget on it")
+                    raise
+                print(f"  ...upstream error, retrying once "
+                      f"({server_errors}/{self.MAX_SERVER_ERROR_RETRIES})")
+                time.sleep(3)
+
+
+
+def _retry_after(exc: APIStatusError) -> Optional[float]:
+    """Google puts the real wait in the error body as retryDelay, and in the
+    Retry-After header. Reading it beats guessing: the guess capped at 32s on a
+    day the API had asked for 57."""
+    try:
+        header = exc.response.headers.get("retry-after")
+        if header:
+            return float(header)
+    except Exception:
+        pass
+    try:
+        for detail in exc.body[0]["error"]["details"]:  # type: ignore[index]
+            delay = detail.get("retryDelay")
+            if delay:
+                return float(str(delay).rstrip("s"))
+    except Exception:
+        pass
+    return None
 
 
 # ------------------------------------------------------------------ guardrails
