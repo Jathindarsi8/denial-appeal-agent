@@ -19,6 +19,7 @@ Public CARC/RARC denial codes, synthetic claim data.
 ```
 denial record
   -> deterministic CARC lookup (always first)
+  -> prior history recalled from the store
   -> model turn
        |- requests a tool -> loop runs it, appends the result,
        |                     hands control back to the model
@@ -64,6 +65,7 @@ reserved for calls that are genuinely optional.
 |---|---|
 | Denial code has no trusted mapping | Escalate before the model is even called |
 | Model's category disagrees with the code lookup | Escalate |
+| Model contradicts a decision a human already made | Escalate |
 | Appeal proposed with no supporting documentation | Escalate |
 | Category where the record alone can't justify an appeal | Escalate |
 | Appeal proposed with nothing retrieved | Escalate |
@@ -102,8 +104,15 @@ specific rule decided it.
 The hook lives in `run()` rather than in each calling script, so a run cannot
 finish without leaving a record.
 
+Every run also lands in SQLite. `claims` is the work queue, `runs` is the
+queryable copy of the log, and `resolutions` holds what a human actually
+decided — the only ground truth in the system, and the thing week 3's
+evaluation has to score against. Scoring against the agent's own past output
+would only measure whether it agrees with itself.
+
 ```bash
-python audit.py           # summarise every recorded run
+python audit.py           # summarise the raw JSONL log
+python store.py stats     # the same thing as SQL, plus stability per claim
 ```
 
 ## Running it
@@ -135,6 +144,9 @@ python audit.py                                       # read the run log
 python build_corpus.py                                # write the policy corpus
 python retrieval.py                                   # build index, test queries
 python probe_retrieval.py gemini-3.7-flash 3          # is retrieval load-bearing
+python store.py init                                  # create the database
+python store.py stats                                 # what every run so far says
+python store.py history CLM-100046                    # one claim's full history
 ```
 
 ## Build log
@@ -291,6 +303,65 @@ Also open: the top-ranked passage on the authorization case is a general
 requirements section rather than the one describing the claim's actual
 situation. Retrieval is finding the right document and the wrong part of it.
 Reranking is the next step.
+
+**Day 7** — Memory, on SQLite. Two problems closed. The claims were hardcoded
+Python objects inside the scripts, and the agent had no memory between runs at
+all — which is survivable when a run is deterministic and dangerous when it
+isn't.
+
+Three tables. `claims` is the work queue. `runs` replaces `runs.jsonl` as the
+queryable copy, with the JSONL kept as the append-only raw log. `resolutions`
+records what a human actually decided, which is the only ground truth in the
+system — an agent's own past output is not.
+
+Memory here is a lookup, not a vector store. The useful questions are exact:
+has this claim been seen, has this member been through this before, what
+normally happens with this denial code. Those are joins, and pretending
+otherwise would be architecture for its own sake.
+
+Prior history is rendered into the prompt as facts with no recommendation
+attached, plus a prompt rule stating that history is context and not
+instruction. Without that, a model shown "escalated last time" tends to read it
+as an instruction rather than as evidence, and memory becomes a feedback loop.
+
+One new guardrail follows from having memory at all: where a human has already
+resolved a claim and the model proposes something different, the run escalates
+rather than quietly overriding them. That rule could not exist before today.
+
+Memory fails soft. An unreadable store logs the failure and the claim still
+gets worked.
+
+What twenty runs across five claims now say, as one query rather than an
+impression:
+
+```
+what decided each run
+  4  appeal_authorized:evidence=2
+  3  appeal_authorized:evidence=1
+  3  appeal_proposed_without_retrieved_evidence
+  3  denial_appears_correct_on_record
+  3  model_requested_escalation
+  3  unmapped_denial_code
+
+confidence floor fired on 0 of 19 runs
+```
+
+*The confidence floor has never once been the deciding rule.* Nineteen runs,
+three models, two prompt versions, a stubbed retrieval layer and a real one. It
+is not a threshold, it is decoration. Six other rules split the work fairly
+evenly between them.
+
+*Four of five claims are stable. The unstable one is the only claim no
+deterministic rule covers.* CLM-100046 has returned two distinct outcomes across
+seven runs, and `authorization_missing` is the one category not in
+`NEVER_AUTO_APPEAL`. Every claim the rules stand behind is stable. The one they
+don't is the one that moves.
+
+Also worth recording: adding real retrieval on day 6 and memory on day 7 changed
+no decision on any case. Two substantial additions to what the model can see,
+and not one outcome moved. That points at the day 6 open question rather than
+answering it — the model may be deciding largely from the deterministic category
+lookup, with everything else as decoration.
 
 ## Plan
 
