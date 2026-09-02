@@ -270,6 +270,15 @@ class ModelClient:
                 return ModelAction.model_validate_json(raw)
 
             except RateLimitError as exc:
+                # Day 9. Two very different things return 429. Per-minute
+                # throttling clears in under a minute and is worth waiting
+                # out. A daily cap clears tomorrow, and waiting three minutes
+                # for it just spends more requests confirming it is still
+                # there. Google names which one it is in the error.
+                if _is_daily_quota(exc):
+                    print("  ...daily quota exhausted for this model, "
+                          "stopping. The checkpoint keeps.")
+                    raise
                 rate_limits += 1
                 if rate_limits > self.MAX_RATE_LIMIT_RETRIES:
                     raise
@@ -289,6 +298,19 @@ class ModelClient:
                       f"({server_errors}/{self.MAX_SERVER_ERROR_RETRIES})")
                 time.sleep(3)
 
+
+
+def _is_daily_quota(exc: APIStatusError) -> bool:
+    """A per-day cap is not a wait-and-retry condition. Google distinguishes
+    them in quotaId: PerDay vs PerMinute."""
+    try:
+        for detail in exc.body[0]["error"]["details"]:  # type: ignore[index]
+            for violation in detail.get("violations", []):
+                if "PerDay" in str(violation.get("quotaId", "")):
+                    return True
+    except Exception:
+        pass
+    return False
 
 
 def _retry_after(exc: APIStatusError) -> Optional[float]:
@@ -376,12 +398,14 @@ class DenialAppealAgent:
         max_steps: int = 8,
         audit_log=None,
         use_memory: bool = True,
+        resume: bool = True,
     ):
         self.code_lookup = code_lookup
         self.model = model
         self.max_steps = max_steps
         self.audit_log = audit_log
         self.use_memory = use_memory
+        self.resume = resume
 
     def run(self, denial: DenialRecord) -> AgentState:
         """Run the agent, then record what happened. Auditing is not optional.
@@ -391,6 +415,18 @@ class DenialAppealAgent:
         only the probes and unit tests do.
         """
         state = self._run(denial)
+
+        # Day 9. The guardrails have decided, so this run is closed. Leaving it
+        # open would let a later rerun reopen a settled case.
+        try:
+            import checkpoint as ckpt
+            ckpt.save(state,
+                      ckpt.run_key(denial, self.model.model),
+                      ckpt.fingerprint(denial, SYSTEM_PROMPT, self.model.model),
+                      complete=True)
+        except Exception as exc:
+            state.log(f"could not close checkpoint ({type(exc).__name__})")
+
         if self.audit_log is not False:
             from audit import record_run
             record_run(state, self.model.model, self.audit_log)
@@ -416,6 +452,19 @@ class DenialAppealAgent:
             {"role": "user", "content": self._initial_context(state)},
         ]
 
+        # Day 9. Pick up work already paid for on this claim. A checkpoint
+        # written against a different prompt, guardrail set or claim is
+        # refused rather than resumed, because mixing two versions of the
+        # agent inside one run would be worse than repeating the calls.
+        import checkpoint as ckpt
+        ckpt_key = ckpt.run_key(denial, self.model.model)
+        ckpt_fp = ckpt.fingerprint(denial, SYSTEM_PROMPT, self.model.model)
+        if self.resume:
+            saved = ckpt.load(ckpt_key, ckpt_fp)
+            if saved:
+                ckpt.restore(state, saved)
+                ckpt.mark_resumed(ckpt_key)
+
         while True:
             if state.steps_taken >= self.max_steps:
                 state.decision = Decision.ESCALATE
@@ -424,6 +473,9 @@ class DenialAppealAgent:
                 return state
 
             state.steps_taken += 1
+            # Written before the call, so a process killed mid-request still
+            # keeps everything up to this point.
+            ckpt.save(state, ckpt_key, ckpt_fp)
 
             try:
                 action = self.model.step(state.messages)
@@ -435,6 +487,8 @@ class DenialAppealAgent:
 
             if action.action == "call_tool":
                 self._handle_tool_call(state, action)
+                # A completed tool call is the work most worth not repeating.
+                ckpt.save(state, ckpt_key, ckpt_fp)
                 continue
 
             state.judgment = action

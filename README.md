@@ -74,6 +74,9 @@ reserved for calls that are genuinely optional.
 | Model requests an unknown tool | Refused, and told why |
 | Model repeats a tool it already called | Refused, and told why |
 
+A run also checkpoints after every step, so a crash or a quota stop resumes
+rather than repeating work already paid for.
+
 It also never quotes payer policy language it hasn't actually retrieved. Every
 generated draft says so and requires human review before submission.
 
@@ -169,6 +172,8 @@ python store.py stats                                 # what every run so far sa
 python store.py history CLM-100046                    # one claim's full history
 python eval_retrieval.py --verbose                    # labelled retrieval set
 python check_second_query.py                          # does the second query earn its place
+python checkpoint.py list                             # what is currently resumable
+python checkpoint.py sweep                            # drop completed checkpoints
 ```
 
 ## Build log
@@ -460,6 +465,61 @@ budget, returning nothing, which then made the next two runs fail on quota. A
 and retrying does not make it healthy. Rate limits now retry up to four times
 honouring the `retryDelay` the API actually sends (it asked for 57s on a day
 the backoff capped at 32), server errors retry twice then give up.
+
+**Day 9** — Checkpoint and resume. A run that died partway through lost
+everything, and that has cost real requests twice this week. On 27 Aug a run
+made two successful tool calls and then hit the rate limit; all of it was
+discarded. On 1 Sep an upstream fault burned five of twenty daily requests and
+returned nothing, which made the next two runs fail on quota. Every discarded
+step was a request already paid for.
+
+State is now written after each step is counted and again after each tool
+result lands, since a completed tool call is the work most worth not repeating.
+`run()` closes the checkpoint once the guardrails have decided, so a rerun
+cannot reopen a settled case.
+
+Three things it has to get right.
+
+*A checkpoint must not outlive the code that wrote it.* Each one carries a
+fingerprint of the claim, the system prompt, the confidence floor and the
+never-auto-appeal set. A mismatch refuses the resume and starts clean, because
+stitching two versions of the agent into one decision is worse than paying for
+the calls twice.
+
+*A conversation belongs to one model.* The run key is claim plus model, so a
+half-finished run on one model is never handed to another.
+
+*Resuming is not re-running.* The model sees the same rebuilt history, but days
+4, 5 and 8 all showed the multi-turn path is not deterministic at temperature 0.
+A resumed run may land somewhere an uninterrupted one would not, and the
+checkpoint records that it was resumed so nobody later reads the result as a
+clean run.
+
+It got tested harder than planned. The first attempt died on an unhandled 503
+at step 2, which is a better test than a clean interrupt: it proves the save
+happened before the thing that killed the process, not during a graceful
+shutdown. The resume picked it up, advanced to step 4, and stopped again when
+the daily quota ran out. Two crashes, one run, no repeated work.
+
+```
+CLM-100046:gemini-3.7-flash    done
+CLM-100046:gemini-3.6-flash    OPEN at step 4  (was resumed)
+```
+
+*Daily quota is not a retryable condition.* The same 429 covers per-minute
+throttling and a per-day cap, and the retry logic was waiting 33, 58, 58 and 59
+seconds on a limit that resets tomorrow. Google names which one it is in
+`quotaId`, so a `PerDay` violation now raises immediately instead of spending
+three minutes and four requests confirming the cap is still there.
+
+*Also observed, unresolved.* The 3.7 run on this claim called one tool and
+stopped, finishing at `evidence=1`. Every earlier run called both and finished
+at `evidence=2`, and day 5 recorded runs that called neither. Three distinct
+tool-use behaviours on one claim. The guardrail requires that *something* was
+retrieved, not that everything relevant was, so an agent that checks the policy
+but never verifies the authorization exists is authorised on the same footing as
+one that does both. "Did it retrieve enough" is a different rule from "did it
+retrieve anything," and only the second one exists.
 
 ## Plan
 
