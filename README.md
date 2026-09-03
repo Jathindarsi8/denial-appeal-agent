@@ -174,6 +174,7 @@ python eval_retrieval.py --verbose                    # labelled retrieval set
 python check_second_query.py                          # does the second query earn its place
 python checkpoint.py list                             # what is currently resumable
 python checkpoint.py sweep                            # drop completed checkpoints
+python test_guardrails.py                             # every guardrail, no API calls
 ```
 
 ## Build log
@@ -499,12 +500,15 @@ It got tested harder than planned. The first attempt died on an unhandled 503
 at step 2, which is a better test than a clean interrupt: it proves the save
 happened before the thing that killed the process, not during a graceful
 shutdown. The resume picked it up, advanced to step 4, and stopped again when
-the daily quota ran out. Two crashes, one run, no repeated work.
+the daily quota ran out. The next day's quota finished it.
 
 ```
-CLM-100046:gemini-3.7-flash    done
-CLM-100046:gemini-3.6-flash    OPEN at step 4  (was resumed)
+CLM-100046:gemini-3.6-flash   done  (was resumed)
+CLM-100046:gemini-3.7-flash   done
 ```
+
+Three sessions, two crashes, two days, and no step paid for twice. The final
+result carries the resumed flag, so nobody later reads it as a clean run.
 
 *Daily quota is not a retryable condition.* The same 429 covers per-minute
 throttling and a per-day cap, and the retry logic was waiting 33, 58, 58 and 59
@@ -520,6 +524,43 @@ retrieved, not that everything relevant was, so an agent that checks the policy
 but never verifies the authorization exists is authorised on the same footing as
 one that does both. "Did it retrieve enough" is a different rule from "did it
 retrieve anything," and only the second one exists.
+
+**Day 10** — Tested the guardrails that had never fired.
+
+Nineteen runs, six rules decided them. There are twelve rules. The other six
+had never executed once: malformed model output, step limit, category
+disagreement, missing documentation, confidence below the floor, and
+contradicting a recorded human decision.
+
+Six rules that have never run are six rules that might not work, and they are
+the ones that matter most. Each exists to stop something, and the moment you
+find out a stop does not stop is the moment it was needed.
+
+They are unreachable with real calls. You would have to wait for a model to
+misbehave in a specific way, on a claim shaped to expose it, on a budget of
+twenty attempts a day. So `test_guardrails.py` drives the agent with a scripted
+model that returns exactly what each case needs. Eleven checks, no API calls,
+about a second.
+
+Every test runs with audit, memory and resume disabled, because a test must not
+write to the run log, read history that changes between runs, or resume a
+checkpoint left by an earlier test.
+
+Two of the checks are worth naming.
+
+*The confidence floor is tested at its boundary, not just inside its range.*
+One case at 0.6 exactly and one just below. A threshold tested only in the
+middle of its range has an untested edge, and thresholds fail at the edge.
+
+*The unmapped-code case asserts the model was never called at all.* The README
+has claimed since day 1 that the deterministic lookup runs before the model is
+involved. Nothing had ever confirmed it. Now a failed assertion would.
+
+All eleven passed, which was not the expected result. Rules that have never
+executed usually have something wrong with them. The finding is smaller than a
+bug and more useful to be able to state: before today "the guardrails handle
+malformed output" was an assumption, and now it is a check that runs before
+every commit.
 
 ## Plan
 
