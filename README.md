@@ -51,6 +51,7 @@ conversation, and calls the model again.
 |---|---|
 | `retrieve_policy` | Payer policy statements for this denial category |
 | `check_prior_authorization` | Whether the claim record references a prior auth |
+| `search_denial_code` | Public web search for an unknown code. Offered only when the curated table has failed. Results are unverified and cannot support an appeal. |
 
 The loop refuses unknown tool names and repeat calls to the same tool, and
 tells the model why it was refused. A step limit bounds the whole thing.
@@ -66,6 +67,7 @@ reserved for calls that are genuinely optional.
 | Denial code has no trusted mapping | Escalate before the model is even called |
 | Model's category disagrees with the code lookup | Escalate |
 | Model contradicts a decision a human already made | Escalate |
+| Category came from a web search rather than the code table | Escalate, whatever the model proposed |
 | Appeal proposed with no supporting documentation | Escalate |
 | Category where the record alone can't justify an appeal | Escalate |
 | Appeal proposed with nothing retrieved | Escalate |
@@ -141,7 +143,7 @@ python store.py stats     # the same thing as SQL, plus stability per claim
 ## Running it
 
 ```bash
-pip install openai pydantic python-dotenv scikit-learn
+pip install openai pydantic python-dotenv scikit-learn ddgs
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install sentence-transformers   # optional; falls back to TF-IDF without it
 ```
@@ -175,6 +177,8 @@ python check_second_query.py                          # does the second query ea
 python checkpoint.py list                             # what is currently resumable
 python checkpoint.py sweep                            # drop completed checkpoints
 python test_guardrails.py                             # every guardrail, no API calls
+python websearch.py 204                               # look up an unmapped code
+python websearch.py --cache                           # what has been looked up
 ```
 
 ## Build log
@@ -561,6 +565,87 @@ executed usually have something wrong with them. The finding is smaller than a
 bug and more useful to be able to state: before today "the guardrails handle
 malformed output" was an assumption, and now it is a check that runs before
 every commit.
+
+**Day 11** — Web search, and what to do with information you cannot trust.
+
+`DenialCodeLookup` holds five CARC codes. There are hundreds and X12 revises
+them, so any claim carrying a code outside that table escalated immediately.
+Safe and useless: four of nineteen runs ended that way, joint most common
+outcome in the log. At volume it means a human opens every claim the table has
+not been updated for.
+
+The agent can now look a code up. The interesting part is refusing to pretend a
+definition found on the open web is the same kind of thing as the curated
+table.
+
+Three rules, enforced rather than hoped for.
+
+*The tool does not exist when the table has the code.* Requesting it on a
+mapped code is refused, so a public search can never be used to argue against a
+definition that was deliberately curated.
+
+*Everything it returns is labelled unverified inside the observation text*,
+beside the content rather than in a prompt preamble, because that is where the
+model actually reads.
+
+*A web-derived category can never authorise an appeal.* It produces a better
+escalation instead. A human still opens the claim, but with "the agent searched,
+read this as a non-covered charge, and here is the policy it then pulled"
+rather than "unknown code".
+
+Results cache in SQLite for 30 days. Code definitions are stable, and a free
+search endpoint deserves not to be hammered.
+
+The end-to-end run on CARC 204:
+
+```
+[step 0] code lookup -> UNMAPPED
+[step 0] code unmapped -> web lookup allowed, outcome cannot exceed escalate
+[step 1] model called search_denial_code
+[step 2] model called retrieve_policy
+[step 3] model judged do_not_appeal (noncovered_charge, confidence 0.95)
+[step 3] guardrail -> escalate (unverified_code_definition:searched_web,
+                                model_read_it_as=noncovered_charge)
+```
+
+The model was right. CARC 204 is a benefit-plan exclusion, and `do_not_appeal`
+was the correct call. The guardrail escalated anyway.
+
+*Whether that is the right trade is an open question, not a settled one.* The
+argument for it: the guardrail cannot tell a correct web-derived conclusion
+from an incorrect one, and a rule that trusts unverified sources only when they
+agree with the safe answer is harder to defend to a compliance reviewer than
+one that treats provenance uniformly. The argument against: closing a claim
+costs nothing and filing a bad appeal costs money, so the two directions are
+not symmetric and the rule is currently generating human review it may not need.
+
+Two bugs found while building it, both the same shape as the problem the day
+was about — a fixed list that does not cover reality.
+
+*Source ranking was a substring match.* `medicaid-documents.dhhs.utah.gov`, a
+state Medicaid agency publishing an actual CARC table, was labelled unverified
+alongside two billing blogs, because "hhs.gov" does not appear in
+"dhhs.utah.gov". Now matched on domain suffix, which also rejects
+`notx12.org.evil.com` — something a substring check would have accepted as
+authoritative.
+
+*Ranking was applied at fetch time, not read time.* Fixing the ranking rule did
+not reach anything already cached. Sorting is now a read-time decision and the
+cache holds raw search order.
+
+*A note on the sources.* X12 maintains the code list but does not publish it as
+crawlable pages, so a general search returns secondary copies: state Medicaid
+documents, Medicare contractor pages, billing vendors. Four sources agreeing is
+good evidence and is still not the standard, and a copy can be stale. A real
+deployment would license the list from X12 or take it from a payer companion
+guide. That is the reason everything here stays marked unverified.
+
+The guardrail suite grew to 14, all offline. One existing test failed on the
+first run after this change, which was correct: it encoded the old behaviour
+where an unmapped code stopped before the model. Updated, plus three new cases
+— the tool being refused on a mapped code, the appeal cap on web provenance,
+and the old behaviour still holding when web lookup is disabled, since that is
+what runs if the search dependency is missing.
 
 ## Plan
 

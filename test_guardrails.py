@@ -225,13 +225,51 @@ def main() -> None:
           run(normal, claim()),
           Decision.APPEAL, "appeal_authorized", verbose)
 
+    # Day 11 changed this deliberately. An unmapped code used to stop before
+    # the model. It now lets the model run so it can look the code up and hand
+    # a human some context, but the outcome is still capped at escalate. Both
+    # halves are asserted: the outcome and the cap.
     unmapped = ScriptedModel(judge())
-    check("an unmapped denial code still escalates before the model",
+    check("an unmapped code escalates on unverified provenance",
           run(unmapped, claim(carc="99999")),
+          Decision.ESCALATE, "unverified_code_definition", verbose)
+
+    # With web lookup off, the old behaviour must still hold, because that is
+    # what runs when the search dependency is missing or disabled.
+    unmapped_no_web = ScriptedModel(judge())
+    agent = DenialAppealAgent(
+        code_lookup=DenialCodeLookup(), model=unmapped_no_web,
+        audit_log=False, use_memory=False, resume=False, web_lookup=False)
+    check("with web lookup off, an unmapped code stops before the model",
+          agent.run(claim(carc="99999")),
           Decision.ESCALATE, "unmapped_denial_code", verbose)
-    if unmapped.calls != 0:
-        print("        NOTE: the model was called on an unmapped code. "
+    if unmapped_no_web.calls != 0:
+        print("        NOTE: the model was called with web lookup disabled. "
               "The lookup is supposed to stop before that.")
+
+    # The web tool must not be reachable on a code the curated table knows.
+    # Otherwise a public search could be used to argue against a definition
+    # that was deliberately curated.
+    tries_search = ScriptedModel([call_tool("search_denial_code"),
+                                  call_tool("retrieve_policy"), judge()])
+    state = run(tries_search, claim(carc="197"))
+    refused = any("refused" in line and "search_denial_code" in line
+                  for line in state.trace)
+    RESULTS.append(("web search is refused on a mapped code", refused,
+                    "refused" if refused else "ALLOWED"))
+    print(f"  {'PASS' if refused else 'FAIL'}  "
+          f"web search is refused on a mapped code")
+    if not refused:
+        for line in state.trace:
+            print(f"        {line}")
+
+    # An appeal can never come out of a web-derived category, whatever the
+    # model proposes or how confident it is.
+    web_appeal = ScriptedModel([call_tool("search_denial_code"),
+                                judge(confidence=0.99)])
+    check("a web-derived category cannot authorise an appeal",
+          run(web_appeal, claim(carc="99999")),
+          Decision.ESCALATE, "unverified_code_definition", verbose)
 
     never_appeal = ScriptedModel([call_tool("retrieve_policy"),
                                   judge(category="noncovered_charge")])

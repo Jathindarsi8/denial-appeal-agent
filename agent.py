@@ -46,7 +46,8 @@ DenialCategory = Literal[
     "other",
 ]
 
-ToolName = Literal["retrieve_policy", "check_prior_authorization"]
+ToolName = Literal["retrieve_policy", "check_prior_authorization",
+                   "search_denial_code"]
 
 
 class Decision(str, Enum):
@@ -91,6 +92,9 @@ class AgentState:
 
     code_category: Optional[str] = None
     code_meaning: Optional[str] = None
+    # Day 11. Where the category came from. "table" is the curated lookup.
+    # "web" means a public search suggested it and nothing has verified it.
+    code_provenance: str = "table"
 
     messages: list[dict] = field(default_factory=list)
     tools_called: list[str] = field(default_factory=list)
@@ -174,10 +178,34 @@ def check_prior_authorization(denial: DenialRecord, category: Optional[str]) -> 
     return "No prior authorization reference found in the claim documentation."
 
 
+def search_denial_code(denial: DenialRecord, category: Optional[str]) -> str:
+    """Day 11. Look up a denial code the curated table does not have.
+
+    Only reachable when the table has already failed. If the code is known,
+    this tool is not offered at all, so a public search can never be used to
+    argue against a definition that was deliberately curated.
+
+    Everything it returns is labelled unverified inside the observation text,
+    next to the content, because that is where the model actually reads.
+    """
+    from websearch import format_for_agent, search_code
+
+    try:
+        results = search_code(denial.carc)
+    except Exception as exc:
+        return (f"Web lookup for CARC {denial.carc} failed "
+                f"({type(exc).__name__}). The code remains unidentified.")
+    return format_for_agent(denial.carc, results)
+
+
 TOOLS: dict[str, Callable[[DenialRecord, Optional[str]], str]] = {
     "retrieve_policy": retrieve_policy,
     "check_prior_authorization": check_prior_authorization,
+    "search_denial_code": search_denial_code,
 }
+
+# Offered only when the deterministic lookup could not identify the code.
+UNMAPPED_ONLY_TOOLS = {"search_denial_code"}
 
 
 # ------------------------------------------------------------ model interface
@@ -196,6 +224,10 @@ To gather information:
 Available tools:
   retrieve_policy            - payer policy statements for this denial category
   check_prior_authorization  - whether the claim record references a prior auth
+  search_denial_code         - public web search for what a denial code means.
+                               Available ONLY when the code is missing from the
+                               trusted table. Results are unverified and cannot
+                               support an appeal, only a better escalation.
 
 To give your assessment:
 {"action": "judge",
@@ -344,6 +376,21 @@ def validate_action(state: AgentState) -> tuple[Decision, str]:
     j = state.judgment
     assert j is not None
 
+    # Day 11. Handled before the checks below, because on an unmapped code
+    # state.code_category stays None and every rule that compares against it
+    # would fire first and report the wrong reason.
+    #
+    # A category the agent found on the web is context for a human, never
+    # grounds for an action. It makes the handoff better; it does not remove
+    # the handoff. What the model read the code as is recorded so a reviewer
+    # opens the claim with something rather than nothing.
+    if state.code_provenance != "table":
+        read_as = j.denial_category or "could not identify"
+        return Decision.ESCALATE, (
+            f"unverified_code_definition:searched_web,"
+            f"model_read_it_as={read_as}"
+        )
+
     if state.code_category is None:
         return Decision.ESCALATE, "unmapped_denial_code"
 
@@ -399,6 +446,7 @@ class DenialAppealAgent:
         audit_log=None,
         use_memory: bool = True,
         resume: bool = True,
+        web_lookup: bool = True,
     ):
         self.code_lookup = code_lookup
         self.model = model
@@ -406,6 +454,7 @@ class DenialAppealAgent:
         self.audit_log = audit_log
         self.use_memory = use_memory
         self.resume = resume
+        self.web_lookup = web_lookup
 
     def run(self, denial: DenialRecord) -> AgentState:
         """Run the agent, then record what happened. Auditing is not optional.
@@ -442,10 +491,19 @@ class DenialAppealAgent:
         state.log(f"code lookup -> {category or 'UNMAPPED'}")
 
         if category is None:
-            state.decision = Decision.ESCALATE
-            state.stop_reason = "unmapped_denial_code"
-            state.log("guardrail -> escalate (unmapped_denial_code)")
-            return state
+            if not self.web_lookup:
+                state.decision = Decision.ESCALATE
+                state.stop_reason = "unmapped_denial_code"
+                state.log("guardrail -> escalate (unmapped_denial_code)")
+                return state
+
+            # Day 11. Let the model run so it can look the code up and hand a
+            # human something better than "unknown code". Provenance is set to
+            # web here, and the guardrail will refuse to authorise anything on
+            # it regardless of what the model concludes.
+            state.code_provenance = "web"
+            state.log("code unmapped -> web lookup allowed, "
+                      "outcome cannot exceed escalate")
 
         state.messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -552,6 +610,14 @@ Prior history:
         if tool is None or tool not in TOOLS:
             observation = f"Error: '{tool}' is not an available tool."
             state.log(f"model requested unknown tool '{tool}' -> refused")
+        elif tool in UNMAPPED_ONLY_TOOLS and state.code_provenance == "table":
+            # The code is known. A public search must not be usable to argue
+            # against the curated definition.
+            observation = (
+                f"Error: {tool} is only available when the denial code is not "
+                f"in the trusted table. This code is."
+            )
+            state.log(f"model requested '{tool}' on a mapped code -> refused")
         elif tool in state.tools_called:
             observation = f"Error: {tool} has already been called this run."
             state.log(f"model repeated tool '{tool}' -> refused")
