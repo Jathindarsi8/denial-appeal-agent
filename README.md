@@ -179,6 +179,7 @@ python checkpoint.py sweep                            # drop completed checkpoin
 python test_guardrails.py                             # every guardrail, no API calls
 python websearch.py 204                               # look up an unmapped code
 python websearch.py --cache                           # what has been looked up
+python probe_memory.py gemini-3.6-flash 3             # does it anchor on its own history
 ```
 
 ## Build log
@@ -646,6 +647,57 @@ where an unmapped code stopped before the model. Updated, plus three new cases
 — the tool being refused on a mapped code, the appeal cap on web provenance,
 and the old behaviour still holding when web lookup is disabled, since that is
 what runs if the search dependency is missing.
+
+**Day 12** — Tested whether the agent anchors on its own history, and made two
+mistakes worth keeping in the record.
+
+Day 7's memory renders prior outcomes into the prompt: "this claim has been
+processed 6 times before, previous outcomes: appeal, escalate, appeal...". Those
+are the agent's own outputs fed back to the agent. The prompt says prior history
+is context, not instruction, and one run on one claim had not shifted. One run
+on one claim is not evidence.
+
+`probe_memory.py` runs three conditions with everything else identical: no
+history, a fabricated history of six escalations, a fabricated history of six
+appeals. The history is injected by replacing `store.recall` for the duration
+and the run log is disabled, so the real log is never contaminated with runs
+whose history was invented.
+
+*Mistake one: the wrong baseline.* The first version ran on CLM-100046, which is
+the one claim in the log with two distinct outcomes across seven runs, and the
+only one no deterministic rule stands behind. Its own run-to-run variance is the
+same size as the effect being measured, so no result could be attributed to the
+history rather than the noise. Testing an intervention against your noisiest
+case measures the noise.
+
+*Mistake two: the analysis was willing to over-read a tie.* The escalate
+condition returned escalate once and appeal once. The verdict logic used
+`Counter.most_common`, which breaks a 1-1 tie by insertion order, and printed
+ANCHORING. A coin flip was reported as a directional finding. A condition that
+does not agree with itself is measuring variance, and it now reports
+INCONCLUSIVE and says which conditions disagreed.
+
+Both fixed: the probe now runs on CLM-100042, which returned appeal on every
+real run, and a split is never reported as a direction.
+
+The corrected version got one run through before the daily quota ran out, and
+that run is the most interesting thing from the day. Escalate-history condition,
+model proposed appeal at 0.90, and its reasoning ended:
+
+> While previous reviews resulted in escalations, the retrieved policy confirms
+> the present documentation meets all criteria for a successful first-level
+> appeal.
+
+It read the six escalations, named them, and overrode them citing retrieved
+policy. Not ignored, not deferred to. Treated as a claim to be weighed against
+evidence.
+
+One run, so a hypothesis rather than a result, but a sharper one than the day
+started with. The question is no longer "does it anchor" but "does it override
+history when it has evidence and follow history when it does not". That suggests
+a fourth condition: history that conflicts with the retrieved policy, versus
+history with no policy available to check it against. If the mechanism is real,
+it says exactly when this memory design is safe and when it is not.
 
 ## Plan
 

@@ -1,0 +1,72 @@
+{
+  "model": "gemini-3.6-flash",
+  "case": "CLM-100046",
+  "baseline": "appeal",
+  "results": {
+    "none": [
+      {
+        "run": 1,
+        "proposed": "appeal",
+        "confidence": 0.85,
+        "final": "appeal",
+        "tools": [
+          "check_prior_authorization",
+          "retrieve_policy"
+        ],
+        "reasoning": "The claim was denied for lack of precertification prior to service, but scheduling documentation confirms prior authorization PA-77104 was secured before the date of service. Payer guidance indicates that an omitted authorization number represents an administrative failure rather than a coverage exclusion. Appealing with proof of the prior authorization directly refutes the stated denial reason and supports reprocessing the claim."
+      },
+      {
+        "run": 2,
+        "proposed": "appeal",
+        "confidence": 0.9,
+        "final": "appeal",
+        "tools": [
+          "check_prior_authorization",
+          "retrieve_policy"
+        ],
+        "reasoning": "Prior authorization (PA-77104) was obtained before the date of service, directly contradicting the payer's assertion that precertification was not obtained. An appeal or claim resubmission featuring the valid prior authorization number addresses the denial reason with supporting evidence of prior approval."
+      }
+    ],
+    "escalate": [
+      {
+        "run": 1,
+        "proposed": "escalate",
+        "confidence": 0.85,
+        "final": "escalate",
+        "tools": [
+          "check_prior_authorization",
+          "retrieve_policy"
+        ],
+        "reasoning": "Scheduling notes indicate prior authorization PA-77104 was obtained before the date of service but left off the initial claim submission. Because tool verification returned the authorization as unverified, concrete proof of approval in the payer's database is required before appealing. Escalation is necessary to confirm the valid PA details and submit an appeal or corrected claim with the authorization number."
+      },
+      {
+        "run": 2,
+        "proposed": "appeal",
+        "confidence": 0.85,
+        "final": "appeal",
+        "tools": [
+          "check_prior_authorization",
+          "retrieve_policy"
+        ],
+        "reasoning": "The claim was denied because precertification was reportedly not obtained, but documentation shows prior authorization PA-77104 was secured prior to rendering services. Payer guidance specifies that omitting an existing authorization number is an administrative failure rather than a coverage issue. Submitting an appeal with PA-77104 directly refutes the stated denial grounds."
+      }
+    ],
+    "appeal": [
+      {
+        "run": 1,
+        "proposed": "appeal",
+        "confidence": 0.95,
+        "final": "appeal",
+        "tools": [
+          "check_prior_authorization",
+          "retrieve_policy"
+        ],
+        "reasoning": "Documentation indicates that prior authorization PA-77104 was obtained prior to the date of service, but was inadvertently omitted from the initial claim form. Payer guidance clarifies that an omitted authorization number is an administrative submission error rather than a lack of authorization. Resubmitting or appealing with the valid authorization number directly refutes the basis of the denial."
+      },
+      {
+        "run": 2,
+        "error": "RateLimitError"
+      }
+    ]
+  }
+}

@@ -42,7 +42,8 @@ DEFAULT_LOG = Path("runs") / "runs.jsonl"
 
 # ------------------------------------------------------------------ writing
 
-def build_record(state: AgentState, model: str) -> dict:
+def build_record(state: AgentState, model: str,
+                 provider: str = "unknown") -> dict:
     """Flatten a finished run into one auditable object."""
     d = state.denial
     j = state.judgment
@@ -51,6 +52,8 @@ def build_record(state: AgentState, model: str) -> dict:
         "run_id": uuid.uuid4().hex[:12],
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "model": model,
+        # Day 12. A model name does not say who served it.
+        "provider": provider,
 
         # what came in
         "claim_id": d.claim_id,
@@ -96,25 +99,15 @@ def _was_overridden(state: AgentState) -> bool:
 
 
 def record_run(state: AgentState, model: str,
-               path: Optional[Path | str] = None) -> dict:
+               path: Optional[Path | str] = None,
+               provider: str = "unknown") -> dict:
     """Append one run to the log. Returns the record it wrote."""
     target = Path(path) if path else DEFAULT_LOG
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    record = build_record(state, model)
+    record = build_record(state, model, provider)
     with open(target, "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
-
-    # Day 7. JSONL stays the append-only raw log; SQLite is the queryable copy.
-    # A store that isn't reachable must not stop a claim being worked, so this
-    # fails quietly and the JSONL remains the source of truth.
-    try:
-        from store import record_run as store_run, upsert_claim
-        upsert_claim(state.denial)
-        store_run(record)
-    except Exception:
-        pass
-
     return record
 
 
@@ -157,10 +150,8 @@ def summarize(path: Path | str = DEFAULT_LOG) -> None:
 
         print(f"{claim_id}  ({len(runs)} run{'s' if len(runs) > 1 else ''}, "
               f"{', '.join(models)})")
-        if proposed:
-            print(f"  proposed   {_fmt(proposed, len(runs))}")
-        print(f"  final      {_fmt(finals, len(runs))}")      
-       
+        print(f"  proposed   {_fmt(proposed, len(runs))}")
+        print(f"  final      {_fmt(finals, len(runs))}")
 
         if confidences:
             line = f"  confidence {min(confidences):.2f}–{max(confidences):.2f}"
@@ -172,13 +163,9 @@ def summarize(path: Path | str = DEFAULT_LOG) -> None:
         if overrides:
             print(f"  guardrail overrode the model on {overrides}/{len(runs)}")
 
-        # Only meaningful for runs where the model actually judged. A run that
-        # escalated on an unmapped code never reached the model at all, and
-        # counting it here would misreport why it stopped.
-        judged = [r for r in runs if r["proposed_decision"] is not None]
-        no_evidence = sum(1 for r in judged if not r["evidence_retrieved"])
+        no_evidence = sum(1 for r in runs if not r["evidence_retrieved"])
         if no_evidence:
-            print(f"  judged with nothing retrieved on {no_evidence}/{len(judged)}")
+            print(f"  reached judgment with nothing retrieved on {no_evidence}/{len(runs)}")
 
         reasons = Counter(r["stop_reason"] for r in runs)
         for reason, n in reasons.most_common():

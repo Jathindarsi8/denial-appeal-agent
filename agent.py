@@ -255,16 +255,69 @@ Return JSON only. No prose outside the JSON.
 """
 
 
+# Day 12. Two providers can serve the same model name, and a model name alone
+# does not say who answered. Every run records the provider so results from
+# different endpoints stay distinguishable later.
+#
+# Deliberately NOT using a pooling library with automatic failover. This
+# project measures run-to-run behaviour, and a library that quietly fails over
+# mid-experiment would have two runs in one condition answered by different
+# models with nothing in the record to show it. The tool that solves the quota
+# problem breaks the measurement.
+PROVIDERS = {
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "groq": "https://api.groq.com/openai/v1",
+    "cerebras": "https://api.cerebras.ai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+    "mistral": "https://api.mistral.ai/v1",
+}
+
+
+def provider_from_url(url: str) -> str:
+    for name, base in PROVIDERS.items():
+        if url.rstrip("/") == base.rstrip("/"):
+            return name
+    try:
+        return url.split("/")[2].replace("www.", "")
+    except Exception:
+        return "unknown"
+
+
 class ModelClient:
-    def __init__(self, model: Optional[str] = None):
-        self.client = OpenAI(
-            api_key=os.environ["LLM_API_KEY"],
-            base_url=os.getenv(
-                "LLM_BASE_URL",
-                "https://generativelanguage.googleapis.com/v1beta/openai/",
-            ),
-        )
+    def __init__(self, model: Optional[str] = None,
+                 provider: Optional[str] = None,
+                 base_url: Optional[str] = None,
+                 api_key: Optional[str] = None):
+        """provider picks a known base URL and its key from the environment.
+
+        ModelClient(provider="groq") reads GROQ_API_KEY and GROQ_MODEL.
+        Anything not given falls back to LLM_BASE_URL / LLM_API_KEY / LLM_MODEL,
+        so every existing call site keeps working unchanged.
+        """
+        if provider:
+            if provider not in PROVIDERS:
+                raise ValueError(
+                    f"unknown provider '{provider}'. "
+                    f"known: {', '.join(PROVIDERS)}"
+                )
+            base_url = base_url or PROVIDERS[provider]
+            api_key = api_key or os.getenv(f"{provider.upper()}_API_KEY")
+            model = model or os.getenv(f"{provider.upper()}_MODEL")
+            if not api_key:
+                raise RuntimeError(
+                    f"no key for {provider}. Set {provider.upper()}_API_KEY "
+                    f"in .env"
+                )
+
+        self.base_url = base_url or os.getenv(
+            "LLM_BASE_URL", PROVIDERS["gemini"])
+        self.provider = provider or provider_from_url(self.base_url)
         self.model = model or os.getenv("LLM_MODEL", "gemini-3.6-flash")
+
+        self.client = OpenAI(
+            api_key=api_key or os.environ["LLM_API_KEY"],
+            base_url=self.base_url,
+        )
 
     # Day 8. These were one except block retrying six times, and it cost a
     # whole day's budget. An upstream 500 got retried five times at 2, 4, 8,
@@ -478,7 +531,8 @@ class DenialAppealAgent:
 
         if self.audit_log is not False:
             from audit import record_run
-            record_run(state, self.model.model, self.audit_log)
+            record_run(state, self.model.model, self.audit_log,
+                       provider=getattr(self.model, 'provider', 'unknown'))
         return state
 
     def _run(self, denial: DenialRecord) -> AgentState:

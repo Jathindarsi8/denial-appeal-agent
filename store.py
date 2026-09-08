@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS runs (
     claim_id            TEXT NOT NULL,
     ts                  TEXT NOT NULL,
     model               TEXT NOT NULL,
+    provider            TEXT NOT NULL DEFAULT 'unknown',
     code_category       TEXT,
     steps_taken         INTEGER,
     tools_called        TEXT,          -- json array
@@ -97,6 +98,14 @@ def connect(path: Path = DB_PATH) -> sqlite3.Connection:
 def init(path: Path = DB_PATH) -> None:
     with connect(path) as conn:
         conn.executescript(SCHEMA)
+        # Day 12. Databases created before provider existed need the column
+        # added rather than recreated, so earlier runs are not lost.
+        cols = [r["name"] for r in conn.execute("PRAGMA table_info(runs)")]
+        if "provider" not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN provider TEXT "
+                         "NOT NULL DEFAULT 'unknown'")
+            conn.commit()
+            print("added provider column to existing runs table")
     print(f"initialised {path}")
 
 
@@ -133,13 +142,15 @@ def record_run(record: dict, conn: Optional[sqlite3.Connection] = None) -> None:
     try:
         conn.execute(
             """INSERT OR REPLACE INTO runs
-               (run_id, claim_id, ts, model, code_category, steps_taken,
-                tools_called, evidence_retrieved, proposed_decision, confidence,
-                final_decision, stop_reason, guardrail_overrode, appeal_drafted)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               (run_id, claim_id, ts, model, provider, code_category,
+                steps_taken, tools_called, evidence_retrieved,
+                proposed_decision, confidence, final_decision, stop_reason,
+                guardrail_overrode, appeal_drafted)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 record["run_id"], record["claim_id"], record["timestamp"],
-                record["model"], record.get("code_category"),
+                record["model"], record.get("provider", "unknown"),
+                record.get("code_category"),
                 record.get("steps_taken"),
                 json.dumps(record.get("tools_called", [])),
                 int(bool(record.get("evidence_retrieved"))),
@@ -303,7 +314,13 @@ def stats(path: Path = DB_PATH) -> None:
         res = conn.execute("SELECT COUNT(*) n FROM resolutions").fetchone()["n"]
         print(f"claims {c}   runs {r}   human resolutions {res}\n")
 
-        print("what decided each run:")
+        print("runs by provider and model:")
+        for row in conn.execute(
+            """SELECT provider, model, COUNT(*) n FROM runs
+               GROUP BY provider, model ORDER BY n DESC"""):
+            print(f"  {row['n']:>3}  {row['provider']} / {row['model']}")
+
+        print("\nwhat decided each run:")
         for row in conn.execute(
             """SELECT stop_reason, COUNT(*) n FROM runs
                GROUP BY stop_reason ORDER BY n DESC"""):

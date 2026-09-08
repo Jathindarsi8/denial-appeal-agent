@@ -1,0 +1,43 @@
+{
+  "model": "gemini-3.6-flash",
+  "case": "CLM-100042",
+  "baseline": "appeal",
+  "results": {
+    "none": [
+      {
+        "run": 1,
+        "error": "RateLimitError"
+      },
+      {
+        "run": 2,
+        "error": "RateLimitError"
+      }
+    ],
+    "escalate": [
+      {
+        "run": 1,
+        "proposed": "appeal",
+        "confidence": 0.9,
+        "final": "appeal",
+        "tools": [
+          "retrieve_policy"
+        ],
+        "reasoning": "The documentation on file satisfies Policy MN-04 requirements by confirming persistent symptoms, trial and failure of prior conservative management (physical therapy), and specific clinical indications. Because the clinical record directly supports medical necessity as defined by payer policy, an appeal is warranted. While previous reviews resulted in escalations, the retrieved policy confirms the present documentation meets all criteria for a successful first-level appeal."
+      },
+      {
+        "run": 2,
+        "error": "RateLimitError"
+      }
+    ],
+    "appeal": [
+      {
+        "run": 1,
+        "error": "RateLimitError"
+      },
+      {
+        "run": 2,
+        "error": "RateLimitError"
+      }
+    ]
+  }
+}
