@@ -45,6 +45,11 @@ CASE_100045 = DenialRecord(
     amount=2450.00,
     carc="96",
     rarc="N130",
+    # Day 14. The billed procedure deliberately differs from what PA-88213
+    # authorises. The contradiction on this claim used to be asserted by the
+    # notes; now the authorization system can demonstrate it.
+    procedure_code="29827",
+    date_of_service="2026-06-20",
     payer_explanation="This service is not covered under the member's benefit plan.",
     documentation_summary=(
         "Prior authorization reference PA-88213 was approved by the payer on "
@@ -64,6 +69,10 @@ CASE_100046 = DenialRecord(
     amount=1375.00,
     carc="197",
     rarc=None,
+    # Day 14. Matches PA-77104 exactly, so the check can confirm the
+    # authorization covers this service rather than only that it exists.
+    procedure_code="29827",
+    date_of_service="2026-06-20",
     payer_explanation=(
         "Precertification was not obtained prior to the service being rendered."
     ),

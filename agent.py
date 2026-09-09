@@ -66,6 +66,12 @@ class DenialRecord:
     rarc: Optional[str]
     payer_explanation: str
     documentation_summary: str
+    # Day 14. Optional so every existing case definition still constructs, but
+    # without them the authorization check can only verify that an
+    # authorization exists, not that it covers this service. It says so in its
+    # own output rather than staying quiet about what it could not check.
+    procedure_code: Optional[str] = None
+    date_of_service: Optional[str] = None
 
 
 class ModelAction(BaseModel):
@@ -167,15 +173,29 @@ def retrieve_policy(denial: DenialRecord, category: Optional[str]) -> str:
 
 
 def check_prior_authorization(denial: DenialRecord, category: Optional[str]) -> str:
-    """Stubbed PA check. Reads what the claim record actually says."""
-    text = denial.documentation_summary.lower()
-    if "prior authorization" in text or "pa-" in text:
+    """Day 14. Verification against an authorization system of record.
+
+    This was a substring search on the claim notes. It reported back what the
+    model had already read and could not fail, which made calling it a
+    ceremony. Day 13 then built a guardrail requiring it, and wrote up the
+    model's refusal to call it as a fault. The model was right: skipping a
+    lookup that returns a fact you already hold is correct.
+
+    The store is separate from the claim, so the claim's own text cannot
+    influence the answer. It can now return things the notes never could: the
+    referenced authorization does not exist, belongs to another member, has
+    been revoked, expired before the service, or covers a different procedure.
+    """
+    from authorizations import verify
+
+    try:
+        return verify(denial)
+    except Exception as exc:
         return (
-            "A prior authorization reference appears in the claim documentation. "
-            "This system cannot confirm it against the payer's authorization "
-            "database. Treat as unverified."
+            f"The authorization system could not be reached "
+            f"({type(exc).__name__}). Authorization status is unknown, which "
+            f"is not the same as absent. Do not conclude either way."
         )
-    return "No prior authorization reference found in the claim documentation."
 
 
 def search_denial_code(denial: DenialRecord, category: Optional[str]) -> str:
@@ -423,6 +443,42 @@ def _retry_after(exc: APIStatusError) -> Optional[float]:
 CONFIDENCE_FLOOR = 0.6
 NEVER_AUTO_APPEAL = {"noncovered_charge", "timely_filing", "duplicate_claim", "other"}
 
+# Day 13. What has to be checked before a claim can be closed either way.
+#
+# Found by adding a second provider. On CLM-100046 a different model called
+# retrieve_policy, never called check_prior_authorization, and closed the claim
+# at 0.96 confidence. The entire case for appealing that claim is that an
+# authorization existed and was omitted from the form. It closed the claim
+# without checking the one fact the decision turns on, and nothing stopped it.
+#
+# Two holes let that through. The evidence rule lived inside the appeal branch,
+# so do_not_appeal returned before any evidence check ran at all. And "did it
+# retrieve anything" was the wrong test regardless: that run HAD an observation,
+# just not the relevant one.
+#
+# do_not_appeal had been treated as the safe direction. It is not. A wrongly
+# filed appeal gets rejected and somebody notices. A wrongly closed claim is
+# money the provider never collects, and there is nothing left to notice.
+REQUIRED_TOOLS: dict[str, set[str]] = {
+    "authorization_missing": {"check_prior_authorization", "retrieve_policy"},
+    "noncovered_charge": {"retrieve_policy"},
+    "medical_necessity": {"retrieve_policy"},
+    "missing_or_invalid_information": {"retrieve_policy"},
+    "timely_filing": {"retrieve_policy"},
+    "duplicate_claim": {"retrieve_policy"},
+    "coding_error": {"retrieve_policy"},
+    "other": {"retrieve_policy"},
+}
+
+# Escalating is the only conclusion the agent may reach without checking
+# anything, because escalating is not a conclusion. It is a handoff.
+TERMINAL_DECISIONS = {"appeal", "do_not_appeal"}
+
+
+def missing_required(state: AgentState) -> set[str]:
+    required = REQUIRED_TOOLS.get(state.code_category or "", set())
+    return required - set(state.tools_called)
+
 
 def validate_action(state: AgentState) -> tuple[Decision, str]:
     """Every rule here is a verifiable condition, not a vibe."""
@@ -465,20 +521,45 @@ def validate_action(state: AgentState) -> tuple[Decision, str]:
     if j.proposed_decision == "escalate":
         return Decision.ESCALATE, "model_requested_escalation"
 
+    # A fact about the claim, checked before any rule about the agent's
+    # process: if there is no documentation on file, running more checks
+    # cannot produce an appeal worth filing.
+    if (j.proposed_decision == "appeal"
+            and not state.denial.documentation_summary.strip()):
+        return Decision.ESCALATE, "appeal_proposed_without_supporting_documentation"
+
+    # Day 13. Applies to both terminal decisions, before either branch. A claim
+    # cannot be closed on a check that was never run, in either direction.
+    #
+    # Day 14: these now run automatically before the model's first turn, so in
+    # normal operation this cannot fire. It stays because the rule and the
+    # mechanism that satisfies it are separate things, and a category added to
+    # REQUIRED_TOOLS but missing from TOOLS would otherwise pass silently.
+    if j.proposed_decision in TERMINAL_DECISIONS:
+        missing = missing_required(state)
+        if missing:
+            return Decision.ESCALATE, (
+                f"required_checks_not_run:{','.join(sorted(missing))},"
+                f"proposed={j.proposed_decision}"
+            )
+
     if j.proposed_decision == "do_not_appeal":
         return Decision.DO_NOT_APPEAL, "denial_appears_correct_on_record"
 
     if j.denial_category in NEVER_AUTO_APPEAL:
         return Decision.ESCALATE, f"category_requires_human_review:{j.denial_category}"
 
-    if not state.denial.documentation_summary.strip():
-        return Decision.ESCALATE, "appeal_proposed_without_supporting_documentation"
-
     # Day 4. Measured: with no tools the model returns 0.95 every single time.
     # With tools it returns 0.75-0.85 and sometimes changes its decision. The
     # score goes DOWN as the agent learns more, so a high score is evidence of
     # ignorance, not of a strong case. Retrieval is therefore a precondition
     # for authorization, and confidence is only consulted afterwards.
+    # Day 4's rule, now a backstop rather than the front line. Day 13's
+    # required-checks rule subsumes it: every category in REQUIRED_TOOLS
+    # demands at least retrieve_policy, so "nothing retrieved" trips the
+    # stronger, more specific rule first. This is unreachable while that
+    # remains true, and it stays because a category added later without a
+    # REQUIRED_TOOLS entry would otherwise have no evidence rule at all.
     if not state.observations:
         return Decision.ESCALATE, "appeal_proposed_without_retrieved_evidence"
 
@@ -559,6 +640,30 @@ class DenialAppealAgent:
             state.log("code unmapped -> web lookup allowed, "
                       "outcome cannot exceed escalate")
 
+        # Day 14. Run the checks this category requires before the model gets
+        # a turn, rather than hoping it elects to.
+        #
+        # Two models have now refused to call check_prior_authorization on
+        # authorization_missing claims. The first explanation was that the tool
+        # was a substring search returning a fact already in the notes, so
+        # skipping it was correct. That was true, and it was fixed. Five runs
+        # after the fix, with a tool that can now contradict the claim text
+        # outright, the skip rate was unchanged: 5 of 5.
+        #
+        # So the model is not weighing whether a lookup is worth making. It
+        # reads "PA-77104 obtained before the date of service" in the notes,
+        # treats that as settled, and never reaches the question. The
+        # distinction between a fact asserted in a document and a fact verified
+        # against a system of record is the entire job in claims work, and it
+        # cannot be left to a model that does not appear to represent it.
+        #
+        # Same conclusion as day 1's CARC lookup: something required on every
+        # decision is not a tool, it is a step. Note what that leaves — every
+        # category requires retrieve_policy, so after this the model has no
+        # optional tools at all on a mapped code. Tool choice was never a real
+        # capability in this agent; it only looked like one.
+        self._run_required_checks(state)
+
         state.messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": self._initial_context(state)},
@@ -620,6 +725,20 @@ class DenialAppealAgent:
 
         return state
 
+    def _run_required_checks(self, state: AgentState) -> None:
+        """Execute the category's required checks up front. Results land in
+        observations exactly as a model-requested call would, so the guardrails
+        and the audit record cannot tell the difference and nothing downstream
+        needs to know these were not chosen."""
+        required = REQUIRED_TOOLS.get(state.code_category or "", set())
+        for tool in sorted(required):
+            if tool in state.tools_called or tool not in TOOLS:
+                continue
+            observation = TOOLS[tool](state.denial, state.code_category)
+            state.tools_called.append(tool)
+            state.observations.append(f"{tool}: {observation}")
+            state.log(f"required check {tool} run automatically")
+
     def _initial_context(self, state: AgentState) -> str:
         d = state.denial
 
@@ -639,6 +758,8 @@ class DenialAppealAgent:
                 state.log(f"memory unavailable ({type(exc).__name__})")
                 history = "Prior history could not be read."
 
+        checks = "\n\n".join(state.observations) or "(none required)"
+
         return f"""\
 Claim ID: {d.claim_id}
 Payer: {d.payer}
@@ -656,6 +777,9 @@ Documentation on file:
 
 Prior history:
 {history}
+
+Checks already run for you on this denial category:
+{checks}
 """
 
     def _handle_tool_call(self, state: AgentState, action: ModelAction) -> None:

@@ -26,11 +26,16 @@ The fabricated history is injected by replacing store.recall for the duration
 of the run. Nothing is written to the runs table, so the real log stays clean
 and a later analysis is not contaminated by an experiment.
 
-Cost: roughly three calls per run. Two runs per condition is six runs, about
-eighteen calls, which is most of a day on the free tier. Do not raise it
-without checking the arithmetic.
+Cost: roughly three calls per run. On a provider with a real allowance, use
+three per condition rather than two. Two cannot distinguish a 2-1 split from a
+3-0, and a split is exactly the outcome the first version of this misread.
 
-    python probe_memory.py gemini-3.6-flash 2
+The case is medical_necessity, which requires only retrieve_policy. That
+matters when running on a provider that skips the authorization check almost
+every time: on this category there is nothing for it to skip.
+
+    python probe_memory.py gemini-3.6-flash 3
+    python probe_memory.py openai/gpt-oss-120b 3 groq
 """
 
 from __future__ import annotations
@@ -76,7 +81,7 @@ CASE = DenialRecord(
     ),
 )
 
-BASELINE = "appeal"  # three real runs, all appeal, no variance observed
+BASELINE = "appeal"  # three real runs on gemini, all appeal, no variance
 
 PAUSE = 45
 
@@ -98,7 +103,8 @@ def memory_for(condition: str) -> ClaimMemory:
     raise ValueError(condition)
 
 
-def run_condition(condition: str, model_name: str, runs: int) -> list[dict]:
+def run_condition(condition: str, model_name: str, runs: int,
+                  provider: str | None = None) -> list[dict]:
     fake = memory_for(condition)
     real_recall = store.recall
     store.recall = lambda *a, **k: fake  # type: ignore[assignment]
@@ -108,7 +114,7 @@ def run_condition(condition: str, model_name: str, runs: int) -> list[dict]:
         for i in range(1, runs + 1):
             agent = DenialAppealAgent(
                 code_lookup=DenialCodeLookup(),
-                model=ModelClient(model=model_name),
+                model=ModelClient(model=model_name, provider=provider),
                 audit_log=False,   # keep the experiment out of the real log
                 resume=False,      # each run starts clean
                 use_memory=True,
@@ -158,12 +164,14 @@ def mentions_history(text: str | None) -> bool:
 
 def main() -> None:
     model_name = sys.argv[1] if len(sys.argv) > 1 else os.getenv("LLM_MODEL", "gemini-3.6-flash")
-    runs = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+    runs = int(sys.argv[2]) if len(sys.argv) > 2 else 3
+    provider = sys.argv[3] if len(sys.argv) > 3 else None
 
     print("Day 12: does the agent follow its own history?\n")
     print(f"model:    {model_name}")
+    print(f"provider: {provider or 'default (LLM_BASE_URL)'}")
     print(f"case:     {CASE.claim_id}")
-    print(f"baseline: {BASELINE} (seven real runs, two models)")
+    print(f"baseline: {BASELINE} (three real runs on gemini, no variance)")
     print(f"runs:     {runs} per condition, {runs * 3} total, "
           f"roughly {runs * 9} calls\n")
 
@@ -176,7 +184,8 @@ def main() -> None:
             "appeal": "history says: appealed 6 times",
         }[condition]
         print(f"  {label}")
-        all_results[condition] = run_condition(condition, model_name, runs)
+        all_results[condition] = run_condition(condition, model_name, runs,
+                                               provider)
         print()
 
     report(model_name, all_results)
@@ -260,7 +269,8 @@ def report(model_name: str, results: dict[str, list[dict]]) -> None:
     print("  claim about this case; not enough to generalise.")
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    path = f"probe-memory-{model_name}-{stamp}.json"
+    safe = model_name.replace("/", "-")  # model names contain slashes
+    path = f"probe-memory-{safe}-{stamp}.json"
     with open(path, "w") as f:
         json.dump({"model": model_name, "case": CASE.claim_id,
                    "baseline": BASELINE, "results": results}, f, indent=2)

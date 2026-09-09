@@ -1,0 +1,102 @@
+{
+  "model": "openai/gpt-oss-120b",
+  "case": "CLM-100042",
+  "baseline": "appeal",
+  "results": {
+    "none": [
+      {
+        "run": 1,
+        "proposed": "appeal",
+        "confidence": 0.85,
+        "final": "appeal",
+        "tools": [
+          "retrieve_policy"
+        ],
+        "reasoning": "The policy requires documentation of diagnosis, severity, prior conservative therapy and its failure, and rationale for the service. The chart notes provide persistent symptoms for four months, failed physical therapy, and a clear clinical indication, meeting those criteria. Therefore the denial is likely erroneous and appealable."
+      },
+      {
+        "run": 2,
+        "proposed": "appeal",
+        "confidence": 0.85,
+        "final": "appeal",
+        "tools": [
+          "retrieve_policy"
+        ],
+        "reasoning": "Policy MN-04 requires evidence of diagnosis, severity, prior conservative management and its outcome, and rationale linking to the service. The chart notes provide all these elements, satisfying the appeal criteria. Therefore the denial is appealable."
+      },
+      {
+        "run": 3,
+        "proposed": "appeal",
+        "confidence": 0.85,
+        "final": "escalate",
+        "tools": [],
+        "reasoning": "The chart notes demonstrate four months of symptoms, unsuccessful physical therapy, and a clear clinical indication for the billed procedure, which typically satisfies medical necessity criteria. The payer\u2019s denial provides no specific contrary evidence, indicating an error in the necessity determination."
+      }
+    ],
+    "escalate": [
+      {
+        "run": 1,
+        "proposed": "appeal",
+        "confidence": 0.85,
+        "final": "appeal",
+        "tools": [
+          "retrieve_policy"
+        ],
+        "reasoning": "The policy requires proof of diagnosis, severity, failed conservative therapy, and rationale linking them to the procedure. The chart notes provide persistent symptoms, four months of conservative therapy failure, and a clear clinical indication, satisfying the policy. Therefore the denial is appealable."
+      },
+      {
+        "run": 2,
+        "proposed": "appeal",
+        "confidence": 0.84,
+        "final": "appeal",
+        "tools": [
+          "retrieve_policy"
+        ],
+        "reasoning": "The policy requires documentation of diagnosis, severity, prior conservative management and its outcome, and logical link to the billed service. The chart notes provide these elements, satisfying the appeal criteria. Therefore the denial can be contested with a first\u2011level appeal."
+      },
+      {
+        "run": 3,
+        "proposed": "appeal",
+        "confidence": 0.85,
+        "final": "appeal",
+        "tools": [
+          "retrieve_policy"
+        ],
+        "reasoning": "The policy requires documentation of diagnosis, severity, prior conservative treatment and its failure, and rationale for the service. The chart notes provide persistent symptoms, four months duration, failed physical therapy, and a clear clinical indication, satisfying those criteria. Therefore the denial appears contrary to policy and is appealable."
+      }
+    ],
+    "appeal": [
+      {
+        "run": 1,
+        "proposed": "appeal",
+        "confidence": 0.84,
+        "final": "appeal",
+        "tools": [
+          "retrieve_policy"
+        ],
+        "reasoning": "The policy requires the record to show diagnosis, severity, prior conservative therapy and its failure, and clear clinical reasoning linking these to the billed service. The chart notes provide persistent symptoms for four months, failed physical therapy, and a stated indication, satisfying the policy criteria. Therefore the denial is appealable with concrete supporting documentation."
+      },
+      {
+        "run": 2,
+        "proposed": "appeal",
+        "confidence": 0.85,
+        "final": "appeal",
+        "tools": [
+          "retrieve_policy"
+        ],
+        "reasoning": "The policy requires documentation of diagnosis, severity, prior conservative therapy and its failure, and rationale linking them to the billed service. The chart notes provide persistent symptoms for four months, failed physical therapy, and a clear clinical indication, satisfying these criteria. Therefore the denial is appealable."
+      },
+      {
+        "run": 3,
+        "proposed": "appeal",
+        "confidence": 0.9,
+        "final": "appeal",
+        "tools": [
+          "check_prior_authorization",
+          "retrieve_policy"
+        ],
+        "reasoning": "The policy requires the appeal to clearly show diagnosis, severity, prior conservative treatment and its outcome, and the clinical rationale for the billed service. The chart notes describe persistent symptoms, four months of conservative therapy failure, and a clear indication, satisfying the policy criteria, so the denial is appealable."
+      }
+    ]
+  }
+}

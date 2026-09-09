@@ -143,7 +143,7 @@ def main() -> None:
         print(f"{mismatches} of {checked} checked cases did not behave as expected.")
         print("Read the traces above before changing anything.")
     else:
-        print(f"All {checked} checked cases behaved as expected. Day 2 complete.")
+        print(f"All {checked} checked cases behaved as expected.")
 
 
 if __name__ == "__main__":

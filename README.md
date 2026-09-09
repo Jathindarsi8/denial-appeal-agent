@@ -50,7 +50,7 @@ conversation, and calls the model again.
 | Tool | What it returns |
 |---|---|
 | `retrieve_policy` | Payer policy statements for this denial category |
-| `check_prior_authorization` | Whether the claim record references a prior auth |
+| `check_prior_authorization` | Verifies a referenced authorization against a system of record: existence, status, member, date window, procedure |
 | `search_denial_code` | Public web search for an unknown code. Offered only when the curated table has failed. Results are unverified and cannot support an appeal. |
 
 The loop refuses unknown tool names and repeat calls to the same tool, and
@@ -70,7 +70,8 @@ reserved for calls that are genuinely optional.
 | Category came from a web search rather than the code table | Escalate, whatever the model proposed |
 | Appeal proposed with no supporting documentation | Escalate |
 | Category where the record alone can't justify an appeal | Escalate |
-| Appeal proposed with nothing retrieved | Escalate |
+| Appeal proposed with nothing retrieved | Escalate (backstop; superseded below) |
+| Required checks for the category were not run, either direction | Escalate |
 | Model confidence below floor | Escalate |
 | Step limit reached | Escalate |
 | Model requests an unknown tool | Refused, and told why |
@@ -179,7 +180,10 @@ python checkpoint.py sweep                            # drop completed checkpoin
 python test_guardrails.py                             # every guardrail, no API calls
 python websearch.py 204                               # look up an unmapped code
 python websearch.py --cache                           # what has been looked up
+python authorizations.py seed                         # populate the auth system
+python authorizations.py PA-88213                     # check one authorization
 python probe_memory.py gemini-3.6-flash 3             # does it anchor on its own history
+python probe_prompt.py openai/gpt-oss-120b 5 groq     # is one prompt line causing tool-skipping
 ```
 
 ## Build log
@@ -698,6 +702,183 @@ history when it has evidence and follow history when it does not". That suggests
 a fourth condition: history that conflicts with the retrieved policy, versus
 history with no policy available to check it against. If the mechanism is real,
 it says exactly when this memory design is safe and when it is not.
+
+**Day 13** — A second provider, and the guardrail gap it exposed within five
+runs.
+
+Added provider configuration first, for quota reasons: twenty requests a day on
+the free Gemini tier had blocked work on three separate days. `ModelClient` now
+takes a provider name, resolves its base URL and key from the environment, and
+every run records which provider answered. Deliberately not using a pooling
+library with automatic failover — this project measures run-to-run behaviour,
+and a library that quietly fails over mid-experiment would put two runs from
+different models in one condition with nothing in the record to show it. The
+tool that solves the quota problem breaks the measurement.
+
+The first real run on the second provider closed CLM-100046 at 0.96 confidence
+having called `retrieve_policy` and nothing else. It never called
+`check_prior_authorization`, so it never checked whether the authorization
+existed — which is the entire basis for appealing that claim.
+
+Two holes let that through.
+
+*The evidence rule only applied to appeals.* It sat inside the appeal branch,
+and `do_not_appeal` returned earlier, so a claim could be closed having read
+nothing at all. `do_not_appeal` had been treated as the safe direction. It is
+not. A wrongly filed appeal gets rejected and somebody notices; a wrongly closed
+claim is money the provider never collects and there is nothing left to notice.
+
+*And "did it retrieve anything" was the wrong test regardless.* That run had an
+observation, just not the relevant one. This is day 9's `evidence=1` versus
+`evidence=2` question, now with a cost attached.
+
+Replaced with `REQUIRED_TOOLS`, a per-category set of checks that must have run
+before either terminal decision. `authorization_missing` requires both the
+policy lookup and the authorization check. Escalating requires nothing, because
+escalating is not a conclusion — it is a handoff.
+
+The documentation check moved above it: a claim with no documentation on file
+cannot produce a worthwhile appeal however many tools were run, so that is the
+more useful reason to report. Day 4's `appeal_proposed_without_retrieved_evidence`
+is now unreachable, since every category requires at least the policy lookup. It
+stays as a backstop for a category added later without a `REQUIRED_TOOLS` entry,
+and is commented as such rather than quietly left in.
+
+Four new tests, suite at 18. Then the fix caught the failure it was written for,
+in a live run, hours later.
+
+*What thirteen runs on the second provider looked like:*
+
+```
+required_checks_not_run   12
+category_disagreement      1
+```
+
+Not one reached a valid decision. Three different rules stopped the first three
+runs — nothing retrieved, one of two retrieved, and the model reading CARC 197
+as `missing_or_invalid_information` when the table says `authorization_missing`.
+That last rule was written on day 1, had never fired in a real run, and a second
+provider triggered it within five.
+
+Two things are true at once here, and the second matters. The model is not doing
+the work. And a rule that stops everything is not a safety feature, it is a
+shutdown — on this claim, with this provider, the agent currently cannot reach
+any decision. Safe and useless is where day 11 started with unmapped codes, and
+it was not accepted then either.
+
+*Ruled out the prompt as the cause.* The system prompt has said since day 2:
+"Call a tool only when the answer would actually change your assessment." The
+claim notes already mention PA-77104, so a model could reasonably read that
+instruction as making the authorization check redundant. `probe_prompt.py`
+removes exactly that line and changes nothing else.
+
+```
+with the line     3 of 5 called retrieve_policy, 0 of 5 called the auth check
+without the line  5 of 5 called retrieve_policy, 0 of 5 called the auth check
+```
+
+Removing it made the model *more* willing to use tools generally and made no
+difference at all to the one that matters. Unanimous across five runs. The
+instruction was never the cause.
+
+The probe's own metric was wrong first, and in the same way day 12's was. It
+counted runs that called no tools at all, and reported that skipping had
+"dropped" while every single run was still missing the required check. Counting
+bare tool use hides a run that called one of two.
+
+So it is not reluctance to use tools. The reading at the time: this model does
+not treat verifying a stated fact as necessary, because the notes already
+mention PA-77104.
+
+*Later the same day this reading was disproved, and the wrong inference is
+left here because it is part of the record.* The explanation assumed the model was weighing whether
+the lookup was worth making, and concluding not. It was not. Once
+`check_prior_authorization` became a real verification that can contradict the
+claim notes outright, the skip rate was unchanged at 5 of 5. The contents of
+the tool have no bearing on whether it gets called, because the decision to
+skip happens before the contents are known.
+
+Which points at the fix, and it is a move already made once. On day 1 the CARC
+lookup was judged too important to be a model choice, so it runs before the
+model is involved. The same applies here: on an `authorization_missing` claim,
+checking whether an authorization exists is not an optional lookup, it is the
+question. Making the model elect to do it is a design error two different models
+have now made. Next: run it as a step for the categories that require it, with
+the result in context before the model's first turn.
+
+*Also confirmed:* the five-case suite still behaves identically on the first
+provider, so the stricter rule costs nothing where things were already working.
+The checkpoint fingerprint refused to resume across the guardrail change, which
+is the day 9 rule working on a real code change rather than a test.
+
+**Day 13, continued** — Then the rule built that morning turned out to rest on
+a tool that could not do its job.
+
+```python
+text = denial.documentation_summary.lower()
+if "prior authorization" in text or "pa-" in text:
+    return "A prior authorization reference appears in the claim documentation."
+```
+
+For twelve days this tool searched the notes the model had already read and
+reported them back. It could not verify anything and it could not fail. The
+rule written that morning required it before any decision on an
+`authorization_missing` claim and wrote up the model's refusal to call it as a
+fault of the model. The model was
+right: skipping a lookup that returns a fact you already hold is correct
+behaviour, and the rule was enforcing a ceremony.
+
+Replaced with an authorization system of record, separate from the claim, that
+the claim's own text cannot influence. It can now return things the notes never
+could:
+
+```
+PA-99999   referenced in the notes, DOES NOT EXIST in the system of record
+PA-88213   exists and is approved, but authorises procedure 64483 while
+           29827 was billed. AU-07 treats a partial match as no authorization
+PA-55010   revoked after issue, notes still reference it
+PA-61200   expired before the date of service
+PA-77104   exists, approved, in window, procedure matches
+```
+
+The first of those is the important one. A claim asserting an authorization
+that was never issued used to produce "an authorization is referenced" and an
+appeal filed on a lie.
+
+`DenialRecord` gained optional `procedure_code` and `date_of_service`. Without
+them the check can only confirm an authorization exists, not that it covers
+this service, and it says so in its own output rather than staying quiet about
+what it could not check. Three tests, suite at 21.
+
+*Then the interesting part.* The morning's finding was that a second provider
+skipped this check on 12 of 13 runs, and the explanation was that the tool was
+useless.
+Five runs after making it genuinely useful:
+
+```
+required_checks_not_run   5 of 5
+```
+
+Unchanged. The tool's contents have no bearing on whether it gets called. The
+model reads "PA-77104 obtained before the date of service" in the notes, treats
+that as settled, and never reaches the question of verifying it.
+
+That is a cleaner finding than the one it replaced, and a worse one. The
+distinction between a fact asserted in a document and a fact verified against a
+system of record is the entire job in claims work. A model that does not appear
+to represent that distinction cannot be given discretion over it.
+
+*So the required checks now run before the model's first turn*, with their
+results already in its context. Same conclusion as day 1's CARC lookup:
+something required on every decision is not a tool, it is a step. The rule
+stays as a backstop — the rule and the mechanism that satisfies it are separate
+things, and a category added to `REQUIRED_TOOLS` but missing from `TOOLS` would
+otherwise pass silently.
+
+Worth naming what that leaves. Every category requires `retrieve_policy`, so on
+a mapped code the model now has no optional tools at all. Tool choice was never
+a real capability in this agent; it only looked like one, and two providers
+disagreeing about when to use it is what made that visible.
 
 ## Plan
 

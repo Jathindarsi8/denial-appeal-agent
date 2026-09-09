@@ -1,0 +1,64 @@
+{
+  "model": "openai/gpt-oss-120b",
+  "case": "CLM-100046",
+  "line_removed": "- Call a tool only when the answer would actually change your assessment.",
+  "runs": 5,
+  "baseline_day5_skipped": "3 of 4",
+  "results": [
+    {
+      "run": 1,
+      "tools_called": [
+        "retrieve_policy"
+      ],
+      "retrieved": true,
+      "proposed_decision": "appeal",
+      "confidence": 0.95,
+      "final_decision": "escalate",
+      "stop_reason": "required_checks_not_run:check_prior_authorization,proposed=appeal"
+    },
+    {
+      "run": 2,
+      "tools_called": [
+        "retrieve_policy"
+      ],
+      "retrieved": true,
+      "proposed_decision": "appeal",
+      "confidence": 0.96,
+      "final_decision": "escalate",
+      "stop_reason": "required_checks_not_run:check_prior_authorization,proposed=appeal"
+    },
+    {
+      "run": 3,
+      "tools_called": [
+        "retrieve_policy"
+      ],
+      "retrieved": true,
+      "proposed_decision": "appeal",
+      "confidence": 0.93,
+      "final_decision": "escalate",
+      "stop_reason": "required_checks_not_run:check_prior_authorization,proposed=appeal"
+    },
+    {
+      "run": 4,
+      "tools_called": [
+        "retrieve_policy"
+      ],
+      "retrieved": true,
+      "proposed_decision": "do_not_appeal",
+      "confidence": 0.95,
+      "final_decision": "escalate",
+      "stop_reason": "required_checks_not_run:check_prior_authorization,proposed=do_not_appeal"
+    },
+    {
+      "run": 5,
+      "tools_called": [
+        "retrieve_policy"
+      ],
+      "retrieved": true,
+      "proposed_decision": "appeal",
+      "confidence": 0.92,
+      "final_decision": "escalate",
+      "stop_reason": "required_checks_not_run:check_prior_authorization,proposed=appeal"
+    }
+  ]
+}

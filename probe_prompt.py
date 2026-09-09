@@ -23,6 +23,7 @@ result already on disk is how you run out of calls. Compare against
 runs/runs.jsonl.
 
     python probe_prompt.py gemini-3.7-flash 4
+    python probe_prompt.py openai/gpt-oss-120b 5 groq
 """
 
 from __future__ import annotations
@@ -79,11 +80,13 @@ def build_variant() -> str:
 def main() -> None:
     model_name = sys.argv[1] if len(sys.argv) > 1 else os.getenv("LLM_MODEL", "gemini-3.7-flash")
     runs = int(sys.argv[2]) if len(sys.argv) > 2 else 4
+    provider = sys.argv[3] if len(sys.argv) > 3 else None
 
     variant = build_variant()
 
     print("Day 6 probe: does one prompt line cause the tool-skipping?\n")
     print(f"model:   {model_name}")
+    print(f"provider:{provider or 'default (LLM_BASE_URL)'}")
     print(f"case:    {CASE.claim_id}  (CARC {CASE.carc})")
     print(f"runs:    {runs}")
     print(f"removed: {TARGET_LINE.strip()}")
@@ -97,8 +100,9 @@ def main() -> None:
     for i in range(1, runs + 1):
         a = DenialAppealAgent(
             code_lookup=DenialCodeLookup(),
-            model=ModelClient(model=model_name),
+            model=ModelClient(model=model_name, provider=provider),
             audit_log=False,  # keep the probe out of the main run log
+            resume=False,     # each run starts clean
         )
 
         try:
@@ -141,12 +145,28 @@ def report(model_name: str, runs: int, results: list[dict]) -> None:
         print("no runs completed")
         return
 
-    skipped = [r for r in ok if not r["retrieved"]]
+    # "Called no tools at all" is the wrong measure. The failure is skipping
+    # the check the decision depends on, and a run that calls one of two
+    # required tools has still skipped it. Counting bare tool-use hid that:
+    # a probe reported skipping had "dropped" while every single run was
+    # still missing check_prior_authorization.
+    from agent import REQUIRED_TOOLS
+    required = REQUIRED_TOOLS.get("authorization_missing", set())
+    skipped = [r for r in ok
+               if required - set(r["tools_called"])]
+    called_nothing = [r for r in ok if not r["retrieved"]]
     confidences = [r["confidence"] for r in ok if r["confidence"] is not None]
 
     print("=" * 70)
-    print(f"completed:      {len(ok)} of {runs}")
-    print(f"skipped tools:  {len(skipped)} of {len(ok)}")
+    print(f"completed:            {len(ok)} of {runs}")
+    print(f"called no tools:      {len(called_nothing)} of {len(ok)}")
+    print(f"missed a REQUIRED tool: {len(skipped)} of {len(ok)}")
+    missing_counts: dict[str, int] = {}
+    for r in ok:
+        for t in required - set(r["tools_called"]):
+            missing_counts[t] = missing_counts.get(t, 0) + 1
+    for tool, n in sorted(missing_counts.items(), key=lambda p: -p[1]):
+        print(f"  {tool} missing on {n} of {len(ok)}")
 
     if confidences:
         line = f"confidence:     {min(confidences):.2f} to {max(confidences):.2f}"
@@ -154,8 +174,11 @@ def report(model_name: str, runs: int, results: list[dict]) -> None:
             line += f"   stdev {statistics.stdev(confidences):.3f}"
         print(line)
 
-    print("\nDay 5 baseline, same case, same model, original prompt:")
-    print("  skipped tools:  3 of 4")
+    print("\nBaselines on this case with the original prompt:")
+    print("  gemini-3.7-flash   skipped tools on 3 of 4 runs")
+    print("  openai/gpt-oss-120b  stopped by required_checks_not_run on")
+    print("                       12 of 13 runs, meaning it skipped a")
+    print("                       required check almost every time")
 
     print()
     if not skipped:
@@ -170,7 +193,8 @@ def report(model_name: str, runs: int, results: list[dict]) -> None:
         print("  make retrieval a step in the loop rather than a model choice.")
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    path = f"probe-prompt-{model_name}-{stamp}.json"
+    safe = model_name.replace("/", "-")  # model names contain slashes
+    path = f"probe-prompt-{safe}-{stamp}.json"
     with open(path, "w") as f:
         json.dump(
             {

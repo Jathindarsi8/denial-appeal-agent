@@ -1,5 +1,13 @@
 """
-Day 10: test the guardrails that have never fired.
+The guardrail suite. Runs offline, in about a second, before every commit.
+
+Started on day 10 to reach six rules that had never executed in nineteen real
+runs. Grown since: day 11 added the web-provenance rules, day 13 added the
+required-checks rules. The point has not changed — a rule that has never run is
+a rule that might not work, and these are the rules that exist to stop
+something.
+
+Day 10, the original problem:
 
 Nineteen runs, six rules decided them. There are twelve rules. The other six
 have never executed once:
@@ -62,16 +70,19 @@ class ScriptedModel:
 
 
 def claim(carc="197", docs="PA-77104 referenced in scheduling notes.",
-          claim_id="TEST-001") -> DenialRecord:
+          claim_id="TEST-001", patient_id="TEST-PT",
+          procedure_code=None, date_of_service=None) -> DenialRecord:
     return DenialRecord(
         claim_id=claim_id,
-        patient_id="TEST-PT",
+        patient_id=patient_id,
         payer="Test Plan",
         amount=100.0,
         carc=carc,
         rarc=None,
         payer_explanation="Test denial.",
         documentation_summary=docs,
+        procedure_code=procedure_code,
+        date_of_service=date_of_service,
     )
 
 
@@ -132,7 +143,7 @@ def check(name: str, state, expect_decision: Decision, expect_reason: str,
 def main() -> None:
     verbose = "-v" in sys.argv
 
-    print("Guardrails that have never fired in a real run.\n")
+    print("Guardrail suite. 22 checks, no API calls.\n")
 
     # ── 1. malformed model output
     # The model returns something that is not a valid ModelAction. Pydantic
@@ -180,7 +191,10 @@ def main() -> None:
     # ── 5. confidence below the floor
     # Zero of nineteen real runs have exercised this. The floor is the most
     # discussed rule in this project and the least tested.
+    # Both required checks are called, so the run reaches the confidence rule
+    # rather than stopping earlier on required_checks_not_run.
     low_conf = ScriptedModel([call_tool("retrieve_policy"),
+                              call_tool("check_prior_authorization"),
                               judge(confidence=CONFIDENCE_FLOOR - 0.1)])
     check("confidence under the floor escalates",
           run(low_conf, claim()),
@@ -189,6 +203,7 @@ def main() -> None:
     # And the boundary. A rule tested only in the middle of its range is a rule
     # whose edge is untested, and thresholds fail at the edge.
     at_floor = ScriptedModel([call_tool("retrieve_policy"),
+                              call_tool("check_prior_authorization"),
                               judge(confidence=CONFIDENCE_FLOOR)])
     check("confidence exactly at the floor is allowed through",
           run(at_floor, claim()),
@@ -198,8 +213,9 @@ def main() -> None:
     # Needs a recorded human resolution, so it writes one, tests, and removes
     # it. This rule was added on day 7 and has never run, because nobody has
     # ever recorded a resolution.
-    import store
-    store.init()
+    import store, io, contextlib
+    with contextlib.redirect_stdout(io.StringIO()):
+        store.init()  # setup, not a result
     store.record_resolution("TEST-HUMAN", "reviewer@test",
                             "do_not_appeal", "test fixture")
     try:
@@ -277,11 +293,121 @@ def main() -> None:
           run(never_appeal, claim(carc="96")),
           Decision.ESCALATE, "category_requires_human_review", verbose)
 
+    # Day 14 removed the scenario. A model can no longer reach a judgment with
+    # nothing retrieved on a mapped code, because the required checks run
+    # before its first turn. What is asserted now is that outcome.
     no_evidence = ScriptedModel(judge())
-    check("an appeal with nothing retrieved still escalates",
+    check("a model that asks for nothing still decides on gathered evidence",
           run(no_evidence, claim()),
-          Decision.ESCALATE, "appeal_proposed_without_retrieved_evidence",
+          Decision.APPEAL, "appeal_authorized", verbose)
+
+    # ── 8. Day 13/14: required checks
+    #
+    # Day 13 required these before either terminal decision, after a second
+    # provider closed a claim at 0.96 without checking whether the
+    # authorization it hinged on existed. Day 14 moved them into the loop, so
+    # the model no longer gets the chance to skip them and the scenarios the
+    # original tests scripted can no longer occur.
+    #
+    # The rule still exists, so it still needs a test that reaches it. The
+    # backstop covers one real gap: a category listed in REQUIRED_TOOLS whose
+    # tool is missing from TOOLS. Nothing would run it, and without the rule
+    # the claim would be decided on a check that silently never happened.
+    print()
+
+    import agent as agent_module
+    original = dict(agent_module.REQUIRED_TOOLS)
+    agent_module.REQUIRED_TOOLS["authorization_missing"] = {
+        "retrieve_policy", "a_tool_that_does_not_exist"}
+    try:
+        gap = ScriptedModel(judge(decision="do_not_appeal", confidence=0.96))
+        check("a required check with no implementation still blocks a decision",
+              run(gap, claim(carc="197")),
+              Decision.ESCALATE, "required_checks_not_run", verbose)
+    finally:
+        agent_module.REQUIRED_TOOLS.clear()
+        agent_module.REQUIRED_TOOLS.update(original)
+
+    # Escalating is a handoff, not a conclusion, so it needs nothing.
+    escalates_bare = ScriptedModel(judge(decision="escalate"))
+    check("escalating is allowed regardless of what ran",
+          run(escalates_bare, claim(carc="197")),
+          Decision.ESCALATE, "model_requested_escalation", verbose)
+
+    # Day 14: the checks run before the model's first turn, so a model that
+    # asks for nothing at all still arrives at a decision with the evidence
+    # already gathered.
+    asks_for_nothing = ScriptedModel(judge(decision="do_not_appeal"))
+    state = run(asks_for_nothing, claim(carc="197"))
+    check("required checks run without the model asking",
+          state, Decision.DO_NOT_APPEAL, "denial_appears_correct_on_record",
           verbose)
+
+    ran_automatically = any("run automatically" in line for line in state.trace)
+    RESULTS.append(("the trace records checks as automatic, not chosen",
+                    ran_automatically,
+                    "recorded" if ran_automatically else "NOT RECORDED"))
+    print(f"  {'PASS' if ran_automatically else 'FAIL'}  "
+          f"the trace records checks as automatic, not chosen")
+
+    # A model that asks for a required tool anyway gets refused as a repeat,
+    # because the loop already ran it.
+    asks_anyway = ScriptedModel([call_tool("check_prior_authorization"),
+                                 judge(decision="do_not_appeal")])
+    state = run(asks_anyway, claim(carc="197"))
+    refused = any("repeated tool" in line for line in state.trace)
+    RESULTS.append(("asking for an already-run check is refused as a repeat",
+                    refused, "refused" if refused else "ALLOWED"))
+    print(f"  {'PASS' if refused else 'FAIL'}  "
+          f"asking for an already-run check is refused as a repeat")
+
+    # ── 9. Day 14: the authorization check verifies rather than echoes
+    # This tool was a substring search on the claim notes for twelve days. It
+    # reported back what the model had already read and could not fail, which
+    # made calling it a ceremony and made day 13's rule requiring it wrong.
+    # These assert it can now contradict the claim text.
+    print()
+    import authorizations, io, contextlib
+    with contextlib.redirect_stdout(io.StringIO()):
+        authorizations.seed()  # setup, not a result
+
+    from agent import check_prior_authorization
+
+    # The notes assert an authorization that was never issued. The old stub
+    # said "an authorization is referenced" because the string was present.
+    ghost = check_prior_authorization(
+        claim(docs="Prior authorization PA-99999 was obtained before service.",
+              patient_id="SYNTH-009"), "authorization_missing")
+    ok = "DOES NOT EXIST" in ghost
+    RESULTS.append(("an authorization only the notes believe in is refuted",
+                    ok, ghost[:60]))
+    print(f"  {'PASS' if ok else 'FAIL'}  "
+          f"an authorization only the notes believe in is refuted")
+    if not ok:
+        print(f"        got: {ghost[:200]}")
+
+    # Exists and approved, but authorises a different procedure. The notes are
+    # telling the truth and the authorization still does not help.
+    mismatch = check_prior_authorization(
+        claim(docs="Prior authorization PA-88213 was approved.",
+              patient_id="SYNTH-004", procedure_code="29827",
+              date_of_service="2026-06-20"), "authorization_missing")
+    ok = "PROBLEMS FOUND" in mismatch and "64483" in mismatch
+    RESULTS.append(("a procedure mismatch is caught", ok, mismatch[:60]))
+    print(f"  {'PASS' if ok else 'FAIL'}  a procedure mismatch is caught")
+    if not ok:
+        print(f"        got: {mismatch[:200]}")
+
+    # Everything lines up.
+    clean = check_prior_authorization(
+        claim(docs="Scheduling notes reference PA-77104.",
+              patient_id="SYNTH-005", procedure_code="29827",
+              date_of_service="2026-06-20"), "authorization_missing")
+    ok = "No discrepancies" in clean
+    RESULTS.append(("a matching authorization is confirmed", ok, clean[:60]))
+    print(f"  {'PASS' if ok else 'FAIL'}  a matching authorization is confirmed")
+    if not ok:
+        print(f"        got: {clean[:200]}")
 
     # ── summary
     passed = sum(1 for _, ok, _ in RESULTS if ok)
@@ -294,7 +420,7 @@ def main() -> None:
                 print(f"  {name}")
                 print(f"    got {detail}")
         sys.exit(1)
-    print("\nEvery guardrail now has at least one run behind it.")
+    print("\nEvery rule has at least one check behind it.")
 
 
 if __name__ == "__main__":
