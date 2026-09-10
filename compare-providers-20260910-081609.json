@@ -1,0 +1,109 @@
+{
+  "gemini": {
+    "CLM-100042": [
+      {
+        "final": "appeal",
+        "proposed": "appeal",
+        "confidence": 0.92,
+        "stop_reason": "appeal_authorized:evidence=1",
+        "tools": [
+          "retrieve_policy"
+        ]
+      },
+      {
+        "final": "appeal",
+        "proposed": "appeal",
+        "confidence": 0.9,
+        "stop_reason": "appeal_authorized:evidence=1",
+        "tools": [
+          "retrieve_policy"
+        ]
+      }
+    ],
+    "CLM-100043": [
+      {
+        "final": "do_not_appeal",
+        "proposed": "do_not_appeal",
+        "confidence": 0.95,
+        "stop_reason": "denial_appears_correct_on_record",
+        "tools": [
+          "retrieve_policy"
+        ]
+      },
+      {
+        "final": "do_not_appeal",
+        "proposed": "do_not_appeal",
+        "confidence": 0.95,
+        "stop_reason": "denial_appears_correct_on_record",
+        "tools": [
+          "retrieve_policy"
+        ]
+      }
+    ],
+    "CLM-100044": [
+      {
+        "final": "escalate",
+        "proposed": "escalate",
+        "confidence": 0.4,
+        "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+        "tools": [
+          "search_denial_code",
+          "check_prior_authorization"
+        ]
+      },
+      {
+        "final": "escalate",
+        "proposed": "escalate",
+        "confidence": 0.3,
+        "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+        "tools": [
+          "search_denial_code"
+        ]
+      }
+    ],
+    "CLM-100045": [
+      {
+        "final": "escalate",
+        "proposed": "appeal",
+        "confidence": 0.9,
+        "stop_reason": "category_requires_human_review:noncovered_charge",
+        "tools": [
+          "retrieve_policy",
+          "check_prior_authorization"
+        ]
+      },
+      {
+        "final": "escalate",
+        "proposed": "appeal",
+        "confidence": 0.9,
+        "stop_reason": "category_requires_human_review:noncovered_charge",
+        "tools": [
+          "retrieve_policy",
+          "check_prior_authorization"
+        ]
+      }
+    ],
+    "CLM-100046": [
+      {
+        "final": "appeal",
+        "proposed": "appeal",
+        "confidence": 0.95,
+        "stop_reason": "appeal_authorized:evidence=2",
+        "tools": [
+          "check_prior_authorization",
+          "retrieve_policy"
+        ]
+      },
+      {
+        "final": "appeal",
+        "proposed": "appeal",
+        "confidence": 0.95,
+        "stop_reason": "appeal_authorized:evidence=2",
+        "tools": [
+          "check_prior_authorization",
+          "retrieve_policy"
+        ]
+      }
+    ]
+  }
+}

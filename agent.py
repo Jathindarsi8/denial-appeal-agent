@@ -66,7 +66,7 @@ class DenialRecord:
     rarc: Optional[str]
     payer_explanation: str
     documentation_summary: str
-    # Day 14. Optional so every existing case definition still constructs, but
+    # Day 13. Optional so every existing case definition still constructs, but
     # without them the authorization check can only verify that an
     # authorization exists, not that it covers this service. It says so in its
     # own output rather than staying quiet about what it could not check.
@@ -173,7 +173,7 @@ def retrieve_policy(denial: DenialRecord, category: Optional[str]) -> str:
 
 
 def check_prior_authorization(denial: DenialRecord, category: Optional[str]) -> str:
-    """Day 14. Verification against an authorization system of record.
+    """Day 13. Verification against an authorization system of record.
 
     This was a substring search on the claim notes. It reported back what the
     model had already read and could not fail, which made calling it a
@@ -321,12 +321,19 @@ class ModelClient:
                     f"known: {', '.join(PROVIDERS)}"
                 )
             base_url = base_url or PROVIDERS[provider]
-            api_key = api_key or os.getenv(f"{provider.upper()}_API_KEY")
-            model = model or os.getenv(f"{provider.upper()}_MODEL")
+            # Provider-specific vars first, then the generic LLM_* pair. The
+            # generic ones predate providers existing, so requiring a rename
+            # would break every existing setup for no reason.
+            api_key = (api_key
+                       or os.getenv(f"{provider.upper()}_API_KEY")
+                       or os.getenv("LLM_API_KEY"))
+            model = (model
+                     or os.getenv(f"{provider.upper()}_MODEL")
+                     or os.getenv("LLM_MODEL"))
             if not api_key:
                 raise RuntimeError(
                     f"no key for {provider}. Set {provider.upper()}_API_KEY "
-                    f"in .env"
+                    f"or LLM_API_KEY in .env"
                 )
 
         self.base_url = base_url or os.getenv(
@@ -531,7 +538,7 @@ def validate_action(state: AgentState) -> tuple[Decision, str]:
     # Day 13. Applies to both terminal decisions, before either branch. A claim
     # cannot be closed on a check that was never run, in either direction.
     #
-    # Day 14: these now run automatically before the model's first turn, so in
+    # Later the same day: these now run automatically before the model's first turn, so in
     # normal operation this cannot fire. It stays because the rule and the
     # mechanism that satisfies it are separate things, and a category added to
     # REQUIRED_TOOLS but missing from TOOLS would otherwise pass silently.
@@ -640,7 +647,7 @@ class DenialAppealAgent:
             state.log("code unmapped -> web lookup allowed, "
                       "outcome cannot exceed escalate")
 
-        # Day 14. Run the checks this category requires before the model gets
+        # Day 13, later. Run the checks this category requires before the model gets
         # a turn, rather than hoping it elects to.
         #
         # Two models have now refused to call check_prior_authorization on

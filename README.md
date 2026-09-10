@@ -182,6 +182,7 @@ python websearch.py 204                               # look up an unmapped code
 python websearch.py --cache                           # what has been looked up
 python authorizations.py seed                         # populate the auth system
 python authorizations.py PA-88213                     # check one authorization
+python compare_providers.py --groq 3 --gemini 2       # where do providers disagree
 python probe_memory.py gemini-3.6-flash 3             # does it anchor on its own history
 python probe_prompt.py openai/gpt-oss-120b 5 groq     # is one prompt line causing tool-skipping
 ```
@@ -879,6 +880,76 @@ Worth naming what that leaves. Every category requires `retrieve_policy`, so on
 a mapped code the model now has no optional tools at all. Tool choice was never
 a real capability in this agent; it only looked like one, and two providers
 disagreeing about when to use it is what made that visible.
+
+**Day 14** — Where two providers disagree, and what memory does to a claim
+nothing stands behind.
+
+`compare_providers.py` runs every case on every configured provider several
+times and separates three things that are easy to conflate: whether a provider
+agrees with itself, whether the providers agree with each other, and which way
+each one goes when they do not. Old runs in the log are not reused, because the
+required checks now run before the model's first turn and the authorization
+check is a real lookup — anything recorded earlier describes a different
+system.
+
+```
+claim        groq (3 runs)        gemini (2 runs)
+CLM-100042   appeal 3             appeal 2
+CLM-100043   do_not_appeal 3      do_not_appeal 2
+CLM-100044   escalate 3           escalate 2
+CLM-100045   escalate 3           escalate 2
+CLM-100046   appeal 3             appeal 2
+```
+
+Complete agreement, both providers, every case, every run. Which makes
+yesterday's apparent provider disagreement on CLM-100046 something else
+entirely.
+
+*The confidence floor was finally under-run, and still did not fire.* CLM-100044
+came back at 0.40 and 0.30 on the first provider — the first time in more than
+twenty runs anything has dropped below 0.6. The unverified-code-definition rule
+caught it first. The floor has now been under-run twice and has still never
+been the deciding rule in any run.
+
+*Then the memory effect.* The comparison script disables memory, because prior
+history differs between providers and would contaminate the comparison. That
+turned out to be the variable.
+
+```
+CLM-100046, one provider, 20 runs per condition, two sessions
+
+              session 1        session 2
+memory off    appeal  9/20     appeal  8/20      42% overall
+memory on     appeal 16/20     appeal 14/20      75% overall
+```
+
+Eighty runs. The gap held across two independent sessions. Showing the agent a
+claim's own prior outcomes roughly doubles the odds it appeals.
+
+Three things have to be said alongside that.
+
+*Without memory, this claim is a coin flip.* 17 of 40 appeals. Not "sometimes
+unstable" — the agent has no opinion and is sampling, on a $1,375 decision. This
+is the one case where no deterministic rule applies, and where the rules do not
+carry a case there is nothing underneath.
+
+*Memory moves the outcome and nothing here can say toward what.* The stored
+history for this claim is mixed. Shown that mixture the model does not become
+uncertain, it goes to 75% appeal. There is no ground truth to say whether that
+is better than 42%. The `resolutions` table is still empty.
+
+*And "memory on" is not a fixed condition.* The history accumulates as runs are
+recorded, so this reproduces within a session and not across days. Yesterday's
+memory-on runs on this claim pointed the other way, on a shorter history and a
+much smaller sample. A clean version snapshots the history and runs both
+conditions against that fixed state.
+
+*Also worth recording: this claim has now fooled three separate analyses.* Day
+12's anchoring probe read a 1-1 split on it as a directional finding. Yesterday
+a 4-of-5 against a 3-of-3 looked like providers disagreeing. This morning a 3-2
+against a 2-3 looked like a memory effect. All three were draws from the same
+coin, and all three happened because the most interesting claim in the set is
+also the noisiest one to measure anything on.
 
 ## Plan
 
