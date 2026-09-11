@@ -38,24 +38,13 @@ from collections import Counter, defaultdict
 from datetime import datetime
 
 from agent import DenialAppealAgent, DenialCodeLookup, ModelClient
-from run_cases import CASES  # the five cases, however run_cases defines them
+from cases import ALL, LABELS
 
 PAUSE = {"gemini": 45, "groq": 3}
 
 
 def cases() -> list:
-    """run_cases stores its cases in a few possible shapes depending on how it
-    was written. Accept a list of records or a list of (label, record)."""
-    out = []
-    for entry in CASES:
-        if isinstance(entry, (tuple, list)):
-            record = next((e for e in entry if hasattr(e, "claim_id")), None)
-            label = next((e for e in entry if isinstance(e, str)), "")
-        else:
-            record, label = entry, ""
-        if record is not None:
-            out.append((label or record.claim_id, record))
-    return out
+    return [(LABELS[c.claim_id], c) for c in ALL]
 
 
 def run_provider(provider: str, model: str | None, runs: int) -> dict:

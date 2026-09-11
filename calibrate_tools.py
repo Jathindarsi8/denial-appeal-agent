@@ -36,52 +36,9 @@ from agent import (
     ModelClient,
 )
 
-# Non-covered charge with contradicting prior auth. The category rule always
-# catches this one, so model instability never changes the outcome.
-CASE_100045 = DenialRecord(
-    claim_id="CLM-100045",
-    patient_id="SYNTH-004",
-    payer="Synthetic Health Plan",
-    amount=2450.00,
-    carc="96",
-    rarc="N130",
-    # Day 14. The billed procedure deliberately differs from what PA-88213
-    # authorises. The contradiction on this claim used to be asserted by the
-    # notes; now the authorization system can demonstrate it.
-    procedure_code="29827",
-    date_of_service="2026-06-20",
-    payer_explanation="This service is not covered under the member's benefit plan.",
-    documentation_summary=(
-        "Prior authorization reference PA-88213 was approved by the payer on "
-        "2026-06-02 for this exact procedure code. The member's benefit summary "
-        "lists the service as covered when medically necessary. The treating "
-        "clinician documented the indication, and the payer's own approval "
-        "letter is on file."
-    ),
-)
-
-# Authorization missing, PA referenced in the notes. Nothing deterministic
-# blocks an appeal here — the model's judgment is load-bearing.
-CASE_100046 = DenialRecord(
-    claim_id="CLM-100046",
-    patient_id="SYNTH-005",
-    payer="Synthetic Health Plan",
-    amount=1375.00,
-    carc="197",
-    rarc=None,
-    # Day 14. Matches PA-77104 exactly, so the check can confirm the
-    # authorization covers this service rather than only that it exists.
-    procedure_code="29827",
-    date_of_service="2026-06-20",
-    payer_explanation=(
-        "Precertification was not obtained prior to the service being rendered."
-    ),
-    documentation_summary=(
-        "Scheduling notes reference prior authorization PA-77104 obtained before "
-        "the date of service. The authorization number was not included on the "
-        "original claim submission."
-    ),
-)
+# Day 15. Definitions moved to cases.py, because these existed here and in
+# run_cases.py with different fields and the same IDs.
+from cases import CLM_100045 as CASE_100045, CLM_100046 as CASE_100046
 
 CASES = {"100045": CASE_100045, "100046": CASE_100046}
 

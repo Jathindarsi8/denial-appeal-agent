@@ -1,0 +1,78 @@
+{
+  "provider": "groq",
+  "runs_per_case": 5,
+  "pass_at_1": 0.96,
+  "pass_k": 0.8,
+  "results": {
+    "CLM-100042": {
+      "expected": "appeal",
+      "decisions": [
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal"
+      ],
+      "runs": 5,
+      "correct": 5,
+      "pass_at_1": 1.0,
+      "pass_all": true
+    },
+    "CLM-100043": {
+      "expected": "do_not_appeal",
+      "decisions": [
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal"
+      ],
+      "runs": 5,
+      "correct": 5,
+      "pass_at_1": 1.0,
+      "pass_all": true
+    },
+    "CLM-100044": {
+      "expected": "escalate",
+      "decisions": [
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate"
+      ],
+      "runs": 5,
+      "correct": 5,
+      "pass_at_1": 1.0,
+      "pass_all": true
+    },
+    "CLM-100045": {
+      "expected": "escalate",
+      "decisions": [
+        "escalate",
+        "escalate",
+        "do_not_appeal",
+        "escalate",
+        "escalate"
+      ],
+      "runs": 5,
+      "correct": 4,
+      "pass_at_1": 0.8,
+      "pass_all": false
+    },
+    "CLM-100046": {
+      "expected": "appeal",
+      "decisions": [
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal"
+      ],
+      "runs": 5,
+      "correct": 5,
+      "pass_at_1": 1.0,
+      "pass_all": true
+    }
+  }
+}

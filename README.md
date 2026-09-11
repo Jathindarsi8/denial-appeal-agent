@@ -113,9 +113,9 @@ that contradicts the model's prior and check whether the decision moves.
 `probe_retrieval.py`. Observing successful runs cannot answer this, because
 agreement makes "read it" and "ignored it" produce the same output.
 
-*Does it agree with a human.* The `resolutions` table is the shape of this and
-it is the layer that decides whether a system like this ships. Not yet built —
-that is week 3, and it needs claims a human has actually worked.
+*Does it agree with a human.* `golden.py` and `evaluate.py`, added on day 15.
+Five labelled claims, every label determined by a published rule, scored as
+pass@1 and pass^k rather than once per case.
 
 All three have to be run repeatedly per case rather than once, because days 4,
 5 and 8 each showed a single run does not tell you what the system does.
@@ -183,6 +183,10 @@ python websearch.py --cache                           # what has been looked up
 python authorizations.py seed                         # populate the auth system
 python authorizations.py PA-88213                     # check one authorization
 python compare_providers.py --groq 3 --gemini 2       # where do providers disagree
+python cases.py                                       # every claim and what the auth system says
+python golden.py                                      # the labelled set and its justifications
+python golden.py record                               # write it to the resolutions table
+python evaluate.py groq 5                             # pass@1 and pass^k
 python probe_memory.py gemini-3.6-flash 3             # does it anchor on its own history
 python probe_prompt.py openai/gpt-oss-120b 5 groq     # is one prompt line causing tool-skipping
 ```
@@ -950,6 +954,108 @@ a 4-of-5 against a 3-of-3 looked like providers disagreeing. This morning a 3-2
 against a 2-3 looked like a memory effect. All three were draws from the same
 coin, and all three happened because the most interesting claim in the set is
 also the noisiest one to measure anything on.
+
+**Day 15** — Ground truth, a score, and finding out the previous score was
+measuring an easier problem.
+
+Every finding so far ended the same way: the agent does X on this fraction of
+runs and nothing here can say whether X is right. The `resolutions` table had
+been empty since day 7.
+
+`golden.py` fills it, with one rule applied throughout: *a decision goes in the
+set only if a published rule determines it.* Where the answer turns on clinical
+judgment, the correct label is `escalate`, which is also what the system should
+do. That is not a dodge. In claims work "a human decides this" is a real and
+common correct answer, and a set that pretends otherwise measures the wrong
+thing.
+
+What the set therefore does not assert: whether a reviewer would agree with the
+clinical merits. What it does assert is whether the record contains the elements
+the payer's own policy requires, which is a documentation question.
+
+```
+CLM-100042  appeal         MN-04, the record contains all three required elements
+CLM-100043  do_not_appeal  NC-11, documentation does not create coverage
+CLM-100044  escalate       no trusted definition for the denial code
+CLM-100045  escalate       NC-11, authorization conflicting with an exclusion
+CLM-100046  appeal         AU-07, authorization verified against the system
+```
+
+*The honest caveat, stated here rather than left to be found.* MN-04, NC-11 and
+AU-07 are synthetic documents written for this project. The golden set is
+scored against a policy corpus by the same author as the labels. That does not
+make the labels wrong, but it does mean the set measures internal consistency
+with stated rules rather than agreement with a real payer.
+
+Two of the labels were only defensible after day 13. Before the authorization
+check became a real lookup, CLM-100046 rested on the claim notes asserting an
+authorization existed.
+
+*`evaluate.py` scores two numbers, and the gap between them is the point.*
+
+```
+pass@1   of all runs, what fraction were correct
+pass^k   of the cases, what fraction were correct on EVERY run
+```
+
+A case right 3 times in 5 contributes 0.6 to the first and 0 to the second.
+That is the correct treatment. An agent that files the right appeal most of the
+time is not an agent that files the right appeal.
+
+*Then the case set turned out to be two case sets.* CLM-100046 was defined in
+`run_cases.py` and again in `calibrate_tools.py` with different fields. The
+`run_cases` copy had no procedure code and no date of service, and the
+authorization check uses both. The same claim ID produced different evidence
+depending on which file a test imported from.
+
+The first evaluation, run against the thin copy:
+
+```
+pass@1   96%   (24 of 25 runs)
+pass^5   80%   (4 of 5 cases correct every run)
+```
+
+After consolidating every definition into `cases.py` and re-running the same
+evaluation against the same labels:
+
+```
+pass@1   76%   (19 of 25 runs)
+pass^5   60%   (3 of 5 cases correct every run)
+```
+
+*The 96% was never a real score.* Without a procedure code the authorization
+check could only report that PA-88213 exists. With one it reports that PA-88213
+authorises 64483 while 29827 was billed, and that AU-07 treats a partial match
+as no authorization. The agent was answering an easier question and the
+evaluation reported it as accuracy.
+
+*The drop has a direction, and it is the uncomfortable one.* Both regressions
+moved toward closing claims.
+
+```
+CLM-100045   4/5 correct -> 1/5   four runs closed a claim the rule sends to a human
+CLM-100046   5/5 correct -> 3/5   two runs closed a claim with a fully verified
+                                  authorization supporting the appeal
+```
+
+On the first the model read "this authorization does not cover the billed
+procedure" and closed the claim instead of escalating. On the second it read
+"this authorization covers everything" and closed the claim instead of
+appealing. Opposite evidence, same drift. More verified evidence made the agent
+worse in one consistent direction, and it is the direction day 13 identified as
+the one nobody notices: a rejected appeal gets seen, a wrongly closed claim is
+money that quietly never arrives.
+
+This is the second measurement lost to something that looked fixed and was not.
+The first was the memory condition drifting between sessions because the stored
+history kept growing. Both had the same shape, and both were only visible
+because two numbers that should have matched did not.
+
+*Still open.* The 76% is five runs per case, and day 14 established that five
+runs is where this project keeps getting fooled. It needs replication. Memory
+is disabled during evaluation, because the golden answers now live in a table
+the agent can read, so the agent has never been scored as it would actually
+run. And only one provider has been evaluated.
 
 ## Plan
 

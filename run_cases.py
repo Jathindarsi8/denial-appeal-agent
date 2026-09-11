@@ -17,90 +17,20 @@ STRONG_DOCUMENTATION = (
     "treatment failure, and the clinical indication for the ordered service."
 )
 
-CASES = [
-    (
-        "medical necessity, well documented",
-        DenialRecord(
-            claim_id="CLM-100042",
-            patient_id="SYNTH-001",
-            payer="Synthetic Health Plan",
-            amount=1840.00,
-            carc="50",
-            rarc=None,
-            payer_explanation="The payer states that the service was not medically necessary.",
-            documentation_summary=STRONG_DOCUMENTATION,
-        ),
-        "appeal",
-    ),
-    (
-        "non-covered charge, well documented",
-        DenialRecord(
-            claim_id="CLM-100043",
-            patient_id="SYNTH-002",
-            payer="Synthetic Health Plan",
-            amount=920.00,
-            carc="96",
-            rarc="N130",
-            payer_explanation="This charge is not covered under the member's benefit plan.",
-            documentation_summary=STRONG_DOCUMENTATION,
-        ),
-        "do_not_appeal",
-    ),
-    (
-        "unmapped denial code",
-        DenialRecord(
-            claim_id="CLM-100044",
-            patient_id="SYNTH-003",
-            payer="Synthetic Health Plan",
-            amount=310.00,
-            carc="99",
-            rarc=None,
-            payer_explanation="Denied. See remittance advice for details.",
-            documentation_summary=STRONG_DOCUMENTATION,
-        ),
-        "escalate",
-    ),
-    (
-        "non-covered charge with contradicting evidence",
-        DenialRecord(
-            claim_id="CLM-100045",
-            patient_id="SYNTH-004",
-            payer="Synthetic Health Plan",
-            amount=2450.00,
-            carc="96",
-            rarc="N130",
-            payer_explanation="This service is not covered under the member's benefit plan.",
-            documentation_summary=(
-                "Prior authorization reference PA-88213 was approved by the payer on "
-                "2026-06-02 for this exact procedure code. The member's benefit summary "
-                "lists the service as covered when medically necessary. The treating "
-                "clinician documented the indication, and the payer's own approval "
-                "letter is on file."
-            ),
-        ),
-        "escalate",
-    ),
-    (
-        "authorization missing, PA referenced in notes",
-        DenialRecord(
-            claim_id="CLM-100046",
-            patient_id="SYNTH-005",
-            payer="Synthetic Health Plan",
-            amount=1375.00,
-            carc="197",
-            rarc=None,
-            payer_explanation=(
-                "Precertification was not obtained prior to the service being rendered."
-            ),
-            documentation_summary=(
-                "Scheduling notes reference prior authorization PA-77104 obtained before "
-                "the date of service. The authorization number was not included on the "
-                "original claim submission."
-            ),
-        ),
-        None,  # open case - whatever it does, the trace is the point
-    ),
-]
+# Day 15. The claim definitions moved to cases.py. They lived here and in
+# calibrate_tools.py with different fields, so the same claim ID meant two
+# different things depending on which file a test imported from.
+from cases import ALL as _ALL, LABELS as _LABELS
+
+_EXPECTED = {
+    "CLM-100042": "appeal",
+    "CLM-100043": "do_not_appeal",
+    "CLM-100044": "escalate",
+    "CLM-100045": "escalate",
+    "CLM-100046": None,  # open case - whatever it does, the trace is the point
+}
+
+CASES = [(_LABELS[c.claim_id], c, _EXPECTED[c.claim_id]) for c in _ALL]
 
 
 def main() -> None:
@@ -143,7 +73,7 @@ def main() -> None:
         print(f"{mismatches} of {checked} checked cases did not behave as expected.")
         print("Read the traces above before changing anything.")
     else:
-        print(f"All {checked} checked cases behaved as expected.")
+        print(f"All {checked} checked cases behaved as expected. Day 2 complete.")
 
 
 if __name__ == "__main__":
