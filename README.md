@@ -186,7 +186,7 @@ python compare_providers.py --groq 3 --gemini 2       # where do providers disag
 python cases.py                                       # every claim and what the auth system says
 python golden.py                                      # the labelled set and its justifications
 python golden.py record                               # write it to the resolutions table
-python evaluate.py groq 5                             # pass@1 and pass^k
+python evaluate.py groq 20                            # pass@1, pass^k, and which control decided
 python probe_memory.py gemini-3.6-flash 3             # does it anchor on its own history
 python probe_prompt.py openai/gpt-oss-120b 5 groq     # is one prompt line causing tool-skipping
 ```
@@ -1056,6 +1056,80 @@ runs is where this project keeps getting fooled. It needs replication. Memory
 is disabled during evaluation, because the golden answers now live in a table
 the agent can read, so the agent has never been scored as it would actually
 run. And only one provider has been evaluated.
+
+**Day 16** — Scoring the decision hides who made it.
+
+Day 15's evaluation reported whether the final decision matched the golden
+label. That cannot distinguish "the model was right" from "the model was wrong
+and a rule refused it". Those are different systems with the same score, and if
+most of the score is rules rescuing bad proposals then the honest description of
+this project is a rules engine with a model attached.
+
+So every run is now classified by which control produced the outcome:
+
+```
+clean         model right, rules agreed
+rescued       model wrong, rules caught it
+leaked        model wrong, rules let it through
+overblocked   model right, rules overruled it
+both_wrong    model wrong, rules wrong differently
+no_judgment   stopped before the model judged
+```
+
+Two of ARISE's four modes are structurally impossible here on a mapped denial
+code. The required checks run before the model's first turn, so it cannot
+bypass search and cannot fail to retrieve. What remains is what the model does
+with evidence it already holds, and what the rules do about it.
+
+Then twenty runs per case instead of five, because five is the sample size that
+has produced a wrong conclusion three times in this project.
+
+```
+100 runs, five claims
+
+pass@1    83%   (83 of 100 runs)
+pass^20   60%   (3 of 5 cases correct on every run)
+
+model proposed the correct answer     76 of 100
+system produced the correct answer    83 of 100
+
+  76  model right, rules agreed
+   7  model wrong, rules caught it
+  17  model wrong, RULES LET IT THROUGH
+   0  model right, rules overruled it
+```
+
+*Seven points of the score are the guardrails.* The model alone is at 76%. The
+rules refused what it proposed on seven runs and were right to. That is now a
+measured quantity rather than a claim.
+
+*Zero overblocking across a hundred runs.* Not one correct proposal was refused.
+That settles the day 11 worry that the provenance rule was generating
+escalations nobody needed, at least on this case set.
+
+*And all seventeen failures are the same failure.* Every one is the model
+proposing `do_not_appeal` and nothing stopping it.
+
+```
+CLM-100045   7 runs closed a claim the rule sends to a human
+CLM-100046  10 runs closed a claim with a fully verified authorization
+```
+
+Not a single wrong appeal. Not one failure in the other direction.
+
+Which makes this a missing rule rather than a model problem. Appeals are
+checked hard: category allowed, required checks run, documentation present,
+confidence above the floor. `do_not_appeal` returns on
+`denial_appears_correct_on_record` with almost nothing checked. The asymmetry
+named on day 13 is now the sole cause of every failure in the evaluation.
+
+CLM-100046 came back 10 of 20 — an exact coin flip on a claim where the
+authorization system confirms the authorization exists, is approved, covers the
+billed procedure, and falls inside its window. On $1,375.
+
+*Still open.* One provider. Gemini has never been evaluated, so it is not yet
+known whether the one-directional failure is a property of this system or of
+this model.
 
 ## Plan
 

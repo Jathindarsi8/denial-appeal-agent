@@ -41,6 +41,46 @@ from cases import BY_ID
 PAUSE = {"gemini": 45, "groq": 3}
 
 
+# Day 16. Scoring the final decision cannot tell "the model was right" from
+# "the model was wrong and a rule caught it". Those are different systems with
+# the same score. CIVI's point applies here: record which control produced the
+# outcome, not only whether the outcome was correct.
+#
+# Two of ARISE's four modes are structurally impossible in this system on a
+# known denial code. The required checks run before the model's first turn, so
+# it cannot bypass search and cannot fail to retrieve. What is left is what
+# the model does with evidence it already has, and what the rules do about it.
+MODE_LABEL = {
+    "clean": "model right, rules agreed",
+    "rescued": "model WRONG, rules caught it",
+    "leaked": "model wrong, RULES LET IT THROUGH",
+    "overblocked": "model right, RULES OVERRULED IT",
+    "both_wrong": "model wrong, rules wrong differently",
+    "no_judgment": "stopped before the model judged",
+}
+
+
+def classify(expected: str, proposed: str | None, final: str | None) -> str:
+    if proposed is None:
+        # Escalated before the model reached a judgment: an unmapped code, or
+        # a required check with no implementation. Correct or not, the model
+        # was never involved.
+        return "no_judgment"
+
+    model_right = proposed == expected
+    final_right = final == expected
+
+    if model_right and final_right:
+        return "clean"
+    if not model_right and final_right:
+        return "rescued"
+    if model_right and not final_right:
+        return "overblocked"
+    if proposed == final:
+        return "leaked"
+    return "both_wrong"
+
+
 def cases_by_id() -> dict:
     return BY_ID
 
@@ -57,7 +97,7 @@ def evaluate(provider: str, runs: int) -> dict:
             continue
 
         print(f"  {label.claim_id}   expected {label.decision}")
-        decisions: list[str] = []
+        runs_detail: list[dict] = []
 
         for i in range(runs):
             agent = DenialAppealAgent(
@@ -70,21 +110,31 @@ def evaluate(provider: str, runs: int) -> dict:
             try:
                 state = agent.run(case)
                 got = state.decision.value if state.decision else None
+                proposed = (state.judgment.proposed_decision
+                            if state.judgment else None)
+                stop = state.stop_reason
             except Exception as exc:
                 print(f"    run {i+1}  FAILED  {type(exc).__name__}")
-                decisions.append(None)
+                runs_detail.append({"error": type(exc).__name__})
                 continue
 
-            decisions.append(got)
+            mode = classify(label.decision, proposed, got)
+            runs_detail.append({
+                "final": got,
+                "proposed": proposed,
+                "stop_reason": stop,
+                "mode": mode,
+            })
             mark = "ok " if got == label.decision else "XX "
-            print(f"    run {i+1}  {mark} {got}")
+            print(f"    run {i+1}  {mark} {str(got):<14} {MODE_LABEL[mode]}")
             time.sleep(pause)
 
-        ok = [d for d in decisions if d is not None]
-        correct = sum(1 for d in ok if d == label.decision)
+        ok = [r for r in runs_detail if "error" not in r]
+        correct = sum(1 for r in ok if r["final"] == label.decision)
         results[label.claim_id] = {
             "expected": label.decision,
-            "decisions": decisions,
+            "decisions": [r["final"] for r in ok],
+            "detail": runs_detail,
             "runs": len(ok),
             "correct": correct,
             "pass_at_1": correct / len(ok) if ok else 0.0,
@@ -134,6 +184,41 @@ def report(provider: str, runs: int, results: dict) -> None:
         print("  pass@1 and pass^k are close, so the failures are consistent")
         print("  rather than random. A consistent failure is easier to fix.")
 
+    # ---- what actually produced each outcome
+    modes = Counter()
+    for r in results.values():
+        for d in r.get("detail", []):
+            if "mode" in d:
+                modes[d["mode"]] += 1
+
+    print("what produced each outcome:")
+    for mode in ("clean", "rescued", "leaked", "overblocked", "both_wrong",
+                 "no_judgment"):
+        if modes[mode]:
+            print(f"  {modes[mode]:>3}  {MODE_LABEL[mode]}")
+
+    total = sum(modes.values())
+    model_alone = modes["clean"] + modes["overblocked"]
+    if total:
+        print(f"\n  The model proposed the correct answer on "
+              f"{model_alone}/{total} runs ({model_alone/total:.0%}).")
+        print(f"  The system produced the correct answer on "
+              f"{modes['clean'] + modes['rescued']}/{total} runs "
+              f"({(modes['clean'] + modes['rescued'])/total:.0%}).")
+        gap = modes["rescued"]
+        if gap:
+            print(f"\n  {gap} run(s) were correct only because a rule refused")
+            print(f"  what the model proposed. Score the model alone and those")
+            print(f"  are failures.")
+        if modes["leaked"]:
+            print(f"\n  {modes['leaked']} run(s) were wrong and nothing caught")
+            print(f"  them. These are the ones worth a new rule.")
+        if modes["overblocked"]:
+            print(f"\n  {modes['overblocked']} run(s) had a correct proposal "
+                  f"refused by a rule.")
+            print(f"  Safe, and it costs a decision that did not need a human.")
+
+    print()
     unstable = [cid for cid, r in results.items()
                 if 0 < r["correct"] < r["runs"]]
     if unstable:
