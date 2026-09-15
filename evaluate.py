@@ -60,6 +60,40 @@ MODE_LABEL = {
 }
 
 
+# Day 17. Not every wrong answer costs the same, and scoring them as if they
+# do misreports what the system is worth.
+#
+# The day 17 rule fixed CLM-100045 outright and changed the shape of the
+# failures on CLM-100046: twelve runs that used to close a claim with a
+# verified authorization now escalate it instead. Scored flat, that looks like
+# a small regression. Operationally it is not remotely the same event. One
+# ends with $1,375 quietly never collected and nobody aware of it. The other
+# ends with a claim on a reviewer's desk and the appeal filed.
+#
+# A guardrail can only refuse a proposal, never promote one. Turning a bad
+# close into an escalation is the most a rule can do, and the metric should
+# say so rather than treating it as the same failure.
+SEVERITY = {
+    # (expected, actual): how bad, and who finds out
+    ("appeal", "escalate"): ("recoverable", "a human sees it and can still file"),
+    ("appeal", "do_not_appeal"): ("silent", "money never collected, nobody knows"),
+    ("escalate", "appeal"): ("recoverable", "the appeal is rejected and someone sees it"),
+    ("escalate", "do_not_appeal"): ("silent", "closed without the review the rule requires"),
+    ("do_not_appeal", "appeal"): ("recoverable", "wasted effort, visible when rejected"),
+    ("do_not_appeal", "escalate"): ("recoverable", "wasted reviewer time, visible"),
+}
+
+SEVERITY_ORDER = ["correct", "recoverable", "silent"]
+
+
+def severity(expected: str, actual: str | None) -> str:
+    if actual == expected:
+        return "correct"
+    if actual is None:
+        return "silent"
+    return SEVERITY.get((expected, actual), ("recoverable", ""))[0]
+
+
 def classify(expected: str, proposed: str | None, final: str | None) -> str:
     if proposed is None:
         # Escalated before the model reached a judgment: an unmapped code, or
@@ -119,11 +153,13 @@ def evaluate(provider: str, runs: int) -> dict:
                 continue
 
             mode = classify(label.decision, proposed, got)
+            sev = severity(label.decision, got)
             runs_detail.append({
                 "final": got,
                 "proposed": proposed,
                 "stop_reason": stop,
                 "mode": mode,
+                "severity": sev,
             })
             mark = "ok " if got == label.decision else "XX "
             print(f"    run {i+1}  {mark} {str(got):<14} {MODE_LABEL[mode]}")
@@ -217,6 +253,38 @@ def report(provider: str, runs: int, results: dict) -> None:
             print(f"\n  {modes['overblocked']} run(s) had a correct proposal "
                   f"refused by a rule.")
             print(f"  Safe, and it costs a decision that did not need a human.")
+
+    # ---- what a failure actually costs
+    sevs = Counter()
+    for r in results.values():
+        for d in r.get("detail", []):
+            if "severity" in d:
+                sevs[d["severity"]] += 1
+
+    total_sev = sum(sevs.values())
+    if total_sev:
+        print("\nwhat the failures cost:")
+        print(f"  {sevs['correct']:>3}  correct")
+        print(f"  {sevs['recoverable']:>3}  wrong, but a human finds out")
+        print(f"  {sevs['silent']:>3}  wrong, and nobody finds out")
+
+        print(f"\n  silent failure rate: "
+              f"{sevs['silent']}/{total_sev} ({sevs['silent']/total_sev:.0%})")
+        if sevs["silent"] == 0:
+            print("  Every remaining failure lands in front of a person.")
+            print("  That is the most a refuse-only guardrail layer can do:")
+            print("  it cannot promote a bad proposal into the right answer,")
+            print("  only stop it from becoming an action.")
+        else:
+            print("  These are the ones that cost money nobody ever sees.")
+
+        for r in results.values():
+            for d in r.get("detail", []):
+                if d.get("severity") == "silent":
+                    pair = (r["expected"], d["final"])
+                    note = SEVERITY.get(pair, ("", ""))[1]
+                    print(f"    expected {pair[0]}, got {pair[1]}: {note}")
+                    break
 
     print()
     unstable = [cid for cid, r in results.items()

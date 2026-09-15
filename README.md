@@ -68,6 +68,7 @@ reserved for calls that are genuinely optional.
 | Model's category disagrees with the code lookup | Escalate |
 | Model contradicts a decision a human already made | Escalate |
 | Category came from a web search rather than the code table | Escalate, whatever the model proposed |
+| Claim closed while verified evidence contradicts the denial | Escalate |
 | Appeal proposed with no supporting documentation | Escalate |
 | Category where the record alone can't justify an appeal | Escalate |
 | Appeal proposed with nothing retrieved | Escalate (backstop; superseded below) |
@@ -1130,6 +1131,80 @@ billed procedure, and falls inside its window. On $1,375.
 *Still open.* One provider. Gemini has never been evaluated, so it is not yet
 known whether the one-directional failure is a property of this system or of
 this model.
+
+**Day 17** — The rule that was missing, and a metric that was lying.
+
+Day 16 produced seventeen failures across a hundred runs and every one was the
+same event: the model proposed `do_not_appeal` and nothing stopped it. Not a
+single wrong appeal. Filing an appeal passed four checks; closing a claim
+returned on `denial_appears_correct_on_record` with almost nothing verified. It
+was the only unguarded exit in the system.
+
+`contradicting_evidence()` closes it. A claim cannot be closed when verified
+evidence contradicts the denial:
+
+```
+authorization_missing   an approved authorization exists, covers the billed
+                        procedure, right member, in date  ->  cannot close
+                        an authorization exists but covers something else
+                        ->  cannot close, AU-07 needs a human
+noncovered_charge       an approved authorization alongside a non-covered
+                        denial  ->  cannot close, NC-11 routes to review
+```
+
+*The rule does not read the model's context.* Tool output is prose and prose
+changes, so a rule that matches on it breaks quietly. The authorization store
+is a local lookup, so the guardrail queries it directly and forms its own view.
+
+*And it deliberately stays out of the way in two cases.* No authorization on
+file at all, and an authorization the notes cite that the system never issued.
+That second one matters: a claim asserting a fake authorization supports the
+denial, so closing it is correct. Without a test for it the fix would trade one
+measured failure for another. Suite at 26.
+
+```
+                    day 16      day 17
+pass@1                 83%         88%
+pass^20                60%         80%
+model alone            76%         70%
+CLM-100045          13/20       20/20
+CLM-100046          10/20        8/20
+```
+
+*CLM-100045 is now carried by the rule.* Eighteen of twenty runs are the
+guardrail refusing what the model proposed. The case scores 100% and the model
+is wrong almost every time. Those are very different statements and only the
+mode breakdown separates them.
+
+*CLM-100046 scored worse and got better.* The failures changed shape: twelve
+runs that used to close a claim with a fully verified authorization now
+escalate it instead. Flat scoring calls that a regression. It is not the same
+event at all. One ends with $1,375 never collected and nobody aware. The other
+ends with the claim on a reviewer's desk.
+
+Which was a flaw in the measurement, not the system, so failures are now
+weighted by whether anyone finds out:
+
+```
+ 88  correct
+ 12  wrong, but a human finds out
+  0  wrong, and nobody finds out
+```
+
+*Zero silent failures across a hundred runs.* Yesterday twenty-nine runs closed
+claims that should not have been closed, leaving no artifact for anyone to
+notice. Today every remaining failure is an escalation.
+
+That is the ceiling for a refuse-only guardrail layer, and it is worth being
+explicit about why. A rule can refuse a proposal. It cannot promote one. Turning
+a bad close into an escalation is the most a deterministic layer can do without
+becoming the thing making claims decisions, which is what this architecture
+exists to prevent. The remaining twelve are the model being unreliable on a
+claim the rules cannot decide for it.
+
+*Also worth recording:* the model-alone figure moved from 76% to 70% between
+two hundred-run evaluations with no change to the model or the claims. Even at
+n=100 a few points are noise.
 
 ## Plan
 

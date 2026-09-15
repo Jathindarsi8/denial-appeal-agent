@@ -487,6 +487,68 @@ def missing_required(state: AgentState) -> set[str]:
     return required - set(state.tools_called)
 
 
+def contradicting_evidence(state: AgentState) -> Optional[str]:
+    """Day 17. Does verified evidence contradict the denial?
+
+    A hundred runs on day 16 produced seventeen failures and every one was the
+    same: the model proposed do_not_appeal and nothing stopped it. Not one
+    wrong appeal. Filing an appeal passes four checks; closing a claim returned
+    on denial_appears_correct_on_record with almost nothing checked.
+
+    This closes that. It deliberately does NOT read the model's context or
+    parse tool output. Tool text is prose and prose changes; a rule built on
+    matching it breaks silently. The authorization store is a local lookup, so
+    the guardrail asks it directly and forms its own view.
+
+    Returns a reason when the claim must not be closed, or None.
+    """
+    from authorizations import extract_reference, lookup
+
+    d = state.denial
+    ref = extract_reference(d.documentation_summary)
+    if not ref:
+        return None
+
+    record = lookup(ref)
+    if record is None:
+        # The notes cite an authorization the system never issued. That
+        # supports the denial rather than contradicting it, so closing is a
+        # defensible outcome and this rule stays out of the way.
+        return None
+
+    if record.status != "approved":
+        return None
+
+    if record.patient_id != d.patient_id:
+        return None
+
+    if d.date_of_service and not (
+            record.valid_from <= d.date_of_service <= record.valid_to):
+        return None
+
+    procedure_matches = (d.procedure_code is None
+                         or d.procedure_code == record.procedure_code)
+
+    if state.code_category == "authorization_missing":
+        if procedure_matches:
+            # The denial says no precertification. The system of record says
+            # otherwise, for this member, this procedure, this date. Closing
+            # the claim contradicts verified evidence.
+            return (f"{ref}_verified_and_supports_appeal")
+        # An authorization exists but covers something else. AU-07 treats a
+        # partial match as no authorization, and which it is needs a human.
+        return f"{ref}_exists_but_procedure_mismatch"
+
+    if state.code_category == "noncovered_charge":
+        # NC-11 routes an approved authorization alongside a non-covered
+        # denial for manual review: either the authorization was issued in
+        # error or the billed service differs from what was authorised, and
+        # neither is resolvable from the claim record.
+        return f"{ref}_approved_but_denial_says_non_covered"
+
+    return None
+
+
 def validate_action(state: AgentState) -> tuple[Decision, str]:
     """Every rule here is a verifiable condition, not a vibe."""
     j = state.judgment
@@ -551,6 +613,15 @@ def validate_action(state: AgentState) -> tuple[Decision, str]:
             )
 
     if j.proposed_decision == "do_not_appeal":
+        # Day 17. Closing a claim now faces a check of its own. Previously it
+        # returned here with almost nothing verified, which made it the only
+        # unguarded exit in the system and the sole cause of every failure in
+        # the day 16 evaluation.
+        contradiction = contradicting_evidence(state)
+        if contradiction:
+            return Decision.ESCALATE, (
+                f"closed_against_verified_evidence:{contradiction}"
+            )
         return Decision.DO_NOT_APPEAL, "denial_appears_correct_on_record"
 
     if j.denial_category in NEVER_AUTO_APPEAL:

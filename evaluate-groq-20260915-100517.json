@@ -1,0 +1,763 @@
+{
+  "provider": "groq",
+  "runs_per_case": 20,
+  "pass_at_1": 0.88,
+  "pass_k": 0.8,
+  "results": {
+    "CLM-100042": {
+      "expected": "appeal",
+      "decisions": [
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal",
+        "appeal"
+      ],
+      "detail": [
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=1",
+          "mode": "clean"
+        }
+      ],
+      "runs": 20,
+      "correct": 20,
+      "pass_at_1": 1.0,
+      "pass_all": true
+    },
+    "CLM-100043": {
+      "expected": "do_not_appeal",
+      "decisions": [
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal",
+        "do_not_appeal"
+      ],
+      "detail": [
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        },
+        {
+          "final": "do_not_appeal",
+          "proposed": "do_not_appeal",
+          "stop_reason": "denial_appears_correct_on_record",
+          "mode": "clean"
+        }
+      ],
+      "runs": 20,
+      "correct": 20,
+      "pass_at_1": 1.0,
+      "pass_all": true
+    },
+    "CLM-100044": {
+      "expected": "escalate",
+      "decisions": [
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate"
+      ],
+      "detail": [
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=missing_or_invalid_information",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=medical_necessity",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "unverified_code_definition:searched_web,model_read_it_as=other",
+          "mode": "clean"
+        }
+      ],
+      "runs": 20,
+      "correct": 20,
+      "pass_at_1": 1.0,
+      "pass_all": true
+    },
+    "CLM-100045": {
+      "expected": "escalate",
+      "decisions": [
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate"
+      ],
+      "detail": [
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "model_requested_escalation",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "model_requested_escalation",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-88213_approved_but_denial_says_non_covered",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "escalate",
+          "stop_reason": "model_requested_escalation",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-88213_approved_but_denial_says_non_covered",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-88213_approved_but_denial_says_non_covered",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-88213_approved_but_denial_says_non_covered",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-88213_approved_but_denial_says_non_covered",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        },
+        {
+          "final": "escalate",
+          "proposed": "appeal",
+          "stop_reason": "category_requires_human_review:noncovered_charge",
+          "mode": "rescued"
+        }
+      ],
+      "runs": 20,
+      "correct": 20,
+      "pass_at_1": 1.0,
+      "pass_all": true
+    },
+    "CLM-100046": {
+      "expected": "appeal",
+      "decisions": [
+        "appeal",
+        "escalate",
+        "escalate",
+        "appeal",
+        "appeal",
+        "appeal",
+        "escalate",
+        "escalate",
+        "appeal",
+        "appeal",
+        "appeal",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "escalate",
+        "appeal",
+        "escalate",
+        "escalate"
+      ],
+      "detail": [
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=2",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=2",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=2",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=2",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=2",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=2",
+          "mode": "clean"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=2",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "appeal",
+          "proposed": "appeal",
+          "stop_reason": "appeal_authorized:evidence=2",
+          "mode": "clean"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        },
+        {
+          "final": "escalate",
+          "proposed": "do_not_appeal",
+          "stop_reason": "closed_against_verified_evidence:PA-77104_verified_and_supports_appeal",
+          "mode": "both_wrong"
+        }
+      ],
+      "runs": 20,
+      "correct": 8,
+      "pass_at_1": 0.4,
+      "pass_all": false
+    }
+  }
+}

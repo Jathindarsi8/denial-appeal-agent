@@ -143,7 +143,7 @@ def check(name: str, state, expect_decision: Decision, expect_reason: str,
 def main() -> None:
     verbose = "-v" in sys.argv
 
-    print("Guardrail suite. 22 checks, no API calls.\n")
+    print("Guardrail suite. 26 checks, no API calls.\n")
 
     # ── 1. malformed model output
     # The model returns something that is not a valid ModelAction. Pydantic
@@ -293,7 +293,7 @@ def main() -> None:
           run(never_appeal, claim(carc="96")),
           Decision.ESCALATE, "category_requires_human_review", verbose)
 
-    # Day 14 removed the scenario. A model can no longer reach a judgment with
+    # Moving the checks into the loop removed the scenario. A model can no longer reach a judgment with
     # nothing retrieved on a mapped code, because the required checks run
     # before its first turn. What is asserted now is that outcome.
     no_evidence = ScriptedModel(judge())
@@ -301,11 +301,11 @@ def main() -> None:
           run(no_evidence, claim()),
           Decision.APPEAL, "appeal_authorized", verbose)
 
-    # ── 8. Day 13/14: required checks
+    # ── 8. Day 13: required checks
     #
     # Day 13 required these before either terminal decision, after a second
     # provider closed a claim at 0.96 without checking whether the
-    # authorization it hinged on existed. Day 14 moved them into the loop, so
+    # authorization it hinged on existed. Later the same day they moved into the loop, so
     # the model no longer gets the chance to skip them and the scenarios the
     # original tests scripted can no longer occur.
     #
@@ -334,7 +334,7 @@ def main() -> None:
           run(escalates_bare, claim(carc="197")),
           Decision.ESCALATE, "model_requested_escalation", verbose)
 
-    # Day 14: the checks run before the model's first turn, so a model that
+    # The checks run before the model's first turn, so a model that
     # asks for nothing at all still arrives at a decision with the evidence
     # already gathered.
     asks_for_nothing = ScriptedModel(judge(decision="do_not_appeal"))
@@ -361,7 +361,7 @@ def main() -> None:
     print(f"  {'PASS' if refused else 'FAIL'}  "
           f"asking for an already-run check is refused as a repeat")
 
-    # ── 9. Day 14: the authorization check verifies rather than echoes
+    # ── 9. Day 13: the authorization check verifies rather than echoes
     # This tool was a substring search on the claim notes for twelve days. It
     # reported back what the model had already read and could not fail, which
     # made calling it a ceremony and made day 13's rule requiring it wrong.
@@ -408,6 +408,43 @@ def main() -> None:
     print(f"  {'PASS' if ok else 'FAIL'}  a matching authorization is confirmed")
     if not ok:
         print(f"        got: {clean[:200]}")
+
+    # ── 10. Day 17: closing a claim against verified evidence
+    # Every one of the seventeen failures in the day 16 evaluation was the
+    # model closing a claim and nothing stopping it. These assert the rule
+    # that now stops it, and equally that it does not fire where closing is
+    # the right answer.
+    print()
+    from cases import CLM_100045, CLM_100046, CLM_100043
+
+    closes_verified = ScriptedModel(judge(decision="do_not_appeal",
+                                          category="authorization_missing"))
+    check("closing a claim with a verified authorization escalates",
+          run(closes_verified, CLM_100046),
+          Decision.ESCALATE, "closed_against_verified_evidence", verbose)
+
+    closes_conflict = ScriptedModel(judge(decision="do_not_appeal",
+                                          category="noncovered_charge"))
+    check("closing a non-covered claim with an approved auth escalates",
+          run(closes_conflict, CLM_100045),
+          Decision.ESCALATE, "closed_against_verified_evidence", verbose)
+
+    # The rule must not fire where closing is correct, or it converts a
+    # measured failure into a different measured failure.
+    closes_correctly = ScriptedModel(judge(decision="do_not_appeal",
+                                           category="noncovered_charge"))
+    check("closing a claim with no authorization on file is still allowed",
+          run(closes_correctly, CLM_100043),
+          Decision.DO_NOT_APPEAL, "denial_appears_correct_on_record", verbose)
+
+    # An authorization the notes invent but the system never issued supports
+    # the denial. Closing stays available.
+    ghost_claim = claim(carc="197", patient_id="SYNTH-009",
+                        docs="Prior authorization PA-99999 was obtained.")
+    closes_on_ghost = ScriptedModel(judge(decision="do_not_appeal"))
+    check("closing on an authorization that does not exist is allowed",
+          run(closes_on_ghost, ghost_claim),
+          Decision.DO_NOT_APPEAL, "denial_appears_correct_on_record", verbose)
 
     # ── summary
     passed = sum(1 for _, ok, _ in RESULTS if ok)
