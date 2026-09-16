@@ -20,6 +20,8 @@ STRONG_DOCUMENTATION = (
 # Day 15. The claim definitions moved to cases.py. They lived here and in
 # calibrate_tools.py with different fields, so the same claim ID meant two
 # different things depending on which file a test imported from.
+import sys
+
 from cases import ALL as _ALL, LABELS as _LABELS
 
 _EXPECTED = {
@@ -33,10 +35,18 @@ _EXPECTED = {
 CASES = [(_LABELS[c.claim_id], c, _EXPECTED[c.claim_id]) for c in _ALL]
 
 
+# Day 18. Which provider to run against. Without this the script always used
+# the default, which is the one whose daily quota runs out first.
+#
+#     python run_cases.py            the default provider
+#     python run_cases.py groq       an explicit one
+_PROVIDER = sys.argv[1] if len(sys.argv) > 1 else None
+
+
 def main() -> None:
     agent = DenialAppealAgent(
         code_lookup=DenialCodeLookup(),
-        model=ModelClient(),
+        model=ModelClient(provider=_PROVIDER),
     )
 
     mismatches = 0

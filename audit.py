@@ -87,6 +87,10 @@ def build_record(state: AgentState, model: str,
         "appeal_drafted": state.appeal_draft is not None,
 
         "confidence_floor": CONFIDENCE_FLOOR,
+        # Day 18
+        "prompt_tokens": getattr(state.usage, "prompt_tokens", 0),
+        "completion_tokens": getattr(state.usage, "completion_tokens", 0),
+        "api_calls": getattr(state.usage, "api_calls", 0),
         "trace": list(state.trace),
     }
 
@@ -108,6 +112,30 @@ def record_run(state: AgentState, model: str,
     record = build_record(state, model, provider)
     with open(target, "a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
+
+    # Day 7. JSONL stays the append-only raw log; SQLite is the queryable copy.
+    # A store that isn't reachable must not stop a claim being worked.
+    try:
+        from store import record_run as store_run, upsert_claim
+        upsert_claim(state.denial)
+        store_run(record)
+    except Exception as exc:
+        # Day 18. This was `except Exception: pass`, and a silent failure here
+        # looks exactly like nothing happening. It cost a full run of five
+        # claims before anyone noticed the table was empty.
+        print(f"  [store write failed: {type(exc).__name__}: {exc}]")
+
+    # Day 18. Token usage in its own table, so a cost report does not depend
+    # on the run log's schema and vice versa.
+    try:
+        import costs
+        if getattr(state, "usage", None) is not None:
+            costs.record(record["run_id"], record["claim_id"], provider,
+                         model, state.usage, record.get("final_decision"),
+                         record["timestamp"])
+    except Exception as exc:
+        print(f"  [cost accounting failed: {type(exc).__name__}: {exc}]")
+
     return record
 
 

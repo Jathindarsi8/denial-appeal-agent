@@ -188,6 +188,9 @@ python cases.py                                       # every claim and what the
 python golden.py                                      # the labelled set and its justifications
 python golden.py record                               # write it to the resolutions table
 python evaluate.py groq 20                            # pass@1, pass^k, and which control decided
+python run_cases.py groq                              # five cases on a named provider
+python costs.py rates                                 # what each model is priced at
+python costs.py report                                # cost per claim and per outcome
 python probe_memory.py gemini-3.6-flash 3             # does it anchor on its own history
 python probe_prompt.py openai/gpt-oss-120b 5 groq     # is one prompt line causing tool-skipping
 ```
@@ -1205,6 +1208,77 @@ claim the rules cannot decide for it.
 *Also worth recording:* the model-alone figure moved from 76% to 70% between
 two hundred-run evaluations with no change to the model or the claims. Even at
 n=100 a few points are noise.
+
+**Day 18** — What a decision costs.
+
+Week 3's checkpoint is "an evaluated agent with known failure modes and
+measured costs". The failure modes had been measured for a week. There was not
+a single cost figure anywhere in the project, and week 4 is about defending
+this to somebody non-technical on pass rate, time saved, risk reduced, and cost
+per claim. Three of those existed.
+
+Every API response carries a usage object with prompt and completion token
+counts, and it was being discarded on every call since day 1. It now
+accumulates on the run state and lands in its own `usage` table, separate from
+the run log so a cost report does not depend on the log's schema.
+
+Two decisions worth stating.
+
+*Everything is priced as if it were paid.* The current providers are free
+tiers, and nobody deploys claims software on a free tier. The only number worth
+quoting is the one at published rates. A model missing from the rate table is
+costed at zero and flagged in the report rather than quietly making the totals
+a lie.
+
+*Cost is reported per outcome, not per run.* A claim closed, an appeal drafted
+and an escalation are different products, and an average hides that.
+
+```
+8 runs, 8 API calls, 7,279 tokens in, 1,989 out
+
+per claim                       $0.0004
+  on openai/gpt-oss-120b        $0.0003
+  on gemini-3.6-flash           $0.0006
+
+by outcome
+  escalate       4 runs   $0.0003 each
+  appeal         3 runs   $0.0004 each
+  do_not_appeal  1 run    $0.0003
+```
+
+A reviewer working one denial: twenty minutes at $40/hour is $13.33. The agent
+is four ten-thousandths of a dollar. The ratio is roughly 36,000 to 1, and it
+is simultaneously the most quotable number here and the least informative, so
+the report prints the argument against it immediately underneath.
+
+*What the ratio leaves out.* An escalation costs the same fractions of a cent
+and still consumes the full twenty minutes of human time. It saves nothing
+directly. What it buys is a reviewer opening the claim with the policy already
+pulled and the authorization already verified against the system of record.
+Half the runs reached a decision with no human, which on eight claims is 1.3
+hours. Day 17 measured 88% correct on a five-claim set, and a wrong decision
+nobody reviews costs considerably more than the twenty minutes it saved.
+
+*Two bugs found on the way, both the same shape.*
+
+`except Exception: pass` around the cost write hid its own failure for a full
+run of five claims. Worse, it turned out the same silent handler had been
+hiding that the day 7 SQLite write was missing from the file entirely — runs
+had stopped reaching the store and nothing said so. Both handlers now print
+what failed. A write that is allowed to fail should still be allowed to
+complain.
+
+The cause was two copies of `audit.py` drifting apart, which is exactly what
+cost a measurement on day 15 when one claim was defined in two files. Same
+failure, second time: two copies of one thing, and nothing pointing out they
+had diverged.
+
+*Also observed:* `contradicts_human_decision` fired in a real run for the first
+time. It was written on day 7 and had only ever run in tests, because the
+resolutions table was empty until day 15. It only works now because there is
+ground truth to contradict — and it also means `run_cases.py` is no longer a
+clean test, since the agent can read the answer key. `evaluate.py` disables
+memory for that reason; `run_cases.py` does not.
 
 ## Plan
 

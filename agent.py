@@ -115,6 +115,10 @@ class AgentState:
     # Day 7. What the store knows about this claim, member and denial code.
     memory: Optional[Any] = None
 
+    # Day 18. Token usage, accumulated across every model call in this run.
+    # The API returns it on every response and it was being discarded.
+    usage: Any = None
+
     def log(self, message: str) -> None:
         self.trace.append(f"[step {self.steps_taken}] {message}")
 
@@ -346,6 +350,10 @@ class ModelClient:
             base_url=self.base_url,
         )
 
+        # Set per run by the agent, so usage lands on the right state object
+        # even when one client serves several runs.
+        self._usage_sink = None
+
     # Day 8. These were one except block retrying six times, and it cost a
     # whole day's budget. An upstream 500 got retried five times at 2, 4, 8,
     # 16 and 32 seconds. Every retry is a request that counts, so one fault on
@@ -379,6 +387,17 @@ class ModelClient:
                 raw = completion.choices[0].message.content
                 if raw is None:
                     raise ValueError("Model returned no content")
+
+                # Day 18. Every response carries this and it was being thrown
+                # away, which is why the project had no cost number for
+                # eighteen days.
+                u = getattr(completion, "usage", None)
+                if u is not None and self._usage_sink is not None:
+                    self._usage_sink.add(
+                        getattr(u, "prompt_tokens", 0) or 0,
+                        getattr(u, "completion_tokens", 0) or 0,
+                    )
+
                 return ModelAction.model_validate_json(raw)
 
             except RateLimitError as exc:
@@ -696,6 +715,10 @@ class DenialAppealAgent:
 
     def _run(self, denial: DenialRecord) -> AgentState:
         state = AgentState(denial=denial)
+
+        from costs import Usage
+        state.usage = Usage()
+        self.model._usage_sink = state.usage
 
         # Step 0: deterministic lookup, before the model is involved at all.
         category, meaning = self.code_lookup.lookup(denial.carc)
