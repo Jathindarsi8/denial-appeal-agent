@@ -124,6 +124,209 @@ GOLDEN: list[Label] = [
         ),
         certainty="rule",
     ),
+    # ─────────────────────────────── Day 19: timely filing
+    Label(
+        claim_id="CLM-100047",
+        decision="appeal",
+        rule="Policy TF-02, accepted proof of timely submission",
+        reasoning=(
+            "TF-02 names a clearinghouse acceptance report identifying the "
+            "claim within the filing window as accepted proof. The record has "
+            "one, dated 12 days after the service. The denial is wrong on the "
+            "payer's own stated criteria, and this is the only route TF-02 "
+            "leaves open."
+        ),
+        certainty="rule",
+    ),
+    Label(
+        claim_id="CLM-100048",
+        decision="do_not_appeal",
+        rule="Policy TF-02, what is not accepted",
+        reasoning=(
+            "No proof of submission of any kind. TF-02 states that clinical "
+            "documentation is not accepted as proof of submission date, so the "
+            "strong clinical record here is irrelevant to this denial. Without "
+            "proof there is nothing to appeal with."
+        ),
+        certainty="rule",
+    ),
+    Label(
+        claim_id="CLM-100049",
+        decision="do_not_appeal",
+        rule="Policy TF-02, what is not accepted",
+        reasoning=(
+            "A practice management screenshot is named explicitly in TF-02 as "
+            "not accepted. The record looks like it contains proof and does "
+            "not. An appeal on this basis fails by the stated rule."
+        ),
+        certainty="rule",
+    ),
+
+    # ─────────────────────────────── Day 19: duplicates
+    Label(
+        claim_id="CLM-100050",
+        decision="do_not_appeal",
+        rule="CARC 18, check whether the original paid",
+        reasoning=(
+            "The remittance shows the original claim adjudicated and paid in "
+            "full. There is no underpayment and nothing to recover. Appealing "
+            "a correctly identified duplicate is wasted effort."
+        ),
+        certainty="rule",
+    ),
+    Label(
+        claim_id="CLM-100051",
+        decision="escalate",
+        rule="CARC 18, distinct services need a corrected claim",
+        reasoning=(
+            "The operative note documents two genuinely distinct procedures. "
+            "The correct route is a corrected claim carrying a distinguishing "
+            "modifier, not an appeal arguing the denial was wrong. The agent "
+            "has no corrected-claim outcome, so the only honest action "
+            "available to it is to hand this to a person."
+        ),
+        certainty="rule",
+    ),
+
+    # ─────────────────────────────── Day 19: missing information
+    Label(
+        claim_id="CLM-100052",
+        decision="escalate",
+        rule="Policy CI-03, corrected claim is the route",
+        reasoning=(
+            "CI-03 states that an appeal is not the appropriate route for a "
+            "returned claim and will itself be returned. The missing element "
+            "is known and the fix is a corrected claim. As with CLM-100051, "
+            "the agent cannot file one, so the correct action is escalation "
+            "rather than either appealing or closing."
+        ),
+        certainty="rule",
+    ),
+    Label(
+        claim_id="CLM-100053",
+        decision="escalate",
+        rule="Policy CI-03, the missing element is unidentified",
+        reasoning=(
+            "No RARC and nothing in the record identifies which element is "
+            "missing. Neither an appeal nor a corrected claim can be prepared "
+            "without knowing what to supply. This needs a person to obtain the "
+            "detail from the payer."
+        ),
+        certainty="rule",
+    ),
+
+    # ─────────────────────────────── Day 19: authorization variants
+    Label(
+        claim_id="CLM-100054",
+        decision="escalate",
+        rule="Policy AU-07, authorization status conflicts with the notes",
+        reasoning=(
+            "The authorization system records PA-55010 as revoked. The claim "
+            "notes still reference it as obtained. Whether the revocation was "
+            "correct, and whether the service was rendered before it took "
+            "effect, is not resolvable from the claim record. AU-07 offers no "
+            "route on a revoked authorization, and the conflict itself needs a "
+            "person."
+        ),
+        certainty="rule",
+    ),
+    Label(
+        claim_id="CLM-100055",
+        decision="do_not_appeal",
+        rule="Policy AU-07, the authorised window had closed",
+        reasoning=(
+            "PA-61200 is approved and covers the billed procedure, but its "
+            "window ended 2026-03-10 and the service was 2026-05-02. AU-07 is "
+            "explicit that the authorised date range must match what was "
+            "billed. An authorization outside its window does not support the "
+            "claim, and no appeal route follows from it."
+        ),
+        certainty="rule",
+    ),
+    Label(
+        claim_id="CLM-100056",
+        decision="do_not_appeal",
+        rule="Policy AU-07, no authorization was issued",
+        reasoning=(
+            "The notes cite PA-99999. The authorization system of record has "
+            "no such authorization. A reference in the claim notes is not "
+            "evidence one was issued, so this falls under AU-07's 'no "
+            "authorization obtained' branch, where retrospective authorization "
+            "is rarely granted and the appeal usually fails."
+        ),
+        certainty="rule",
+    ),
+    Label(
+        claim_id="CLM-100057",
+        decision="escalate",
+        rule="Policy AU-07, emergency exception needs review",
+        reasoning=(
+            "No authorization was requested and none exists, so the denial is "
+            "correct on its face. But AU-07 allows retrospective authorization "
+            "where the service met emergency criteria, and the record states "
+            "the service was urgent without documenting the criteria. Whether "
+            "it qualifies is a clinical judgment, which is the boundary where "
+            "the correct answer is escalation."
+        ),
+        certainty="judgment",
+    ),
+
+    # ─────────────────────────────── Day 19: medical necessity variants
+    Label(
+        claim_id="CLM-100058",
+        decision="do_not_appeal",
+        rule="Policy MN-04, what a first-level appeal must contain",
+        reasoning=(
+            "MN-04 requires the diagnosis and severity, prior conservative "
+            "management and its outcome, and the reasoning connecting them to "
+            "the service. The record establishes none of these and states only "
+            "that the procedure was performed. MN-04 says appeals that restate "
+            "the service without establishing the indication are upheld at the "
+            "initial denial."
+        ),
+        certainty="rule",
+    ),
+    Label(
+        claim_id="CLM-100059",
+        decision="do_not_appeal",
+        rule="Policy MN-04, first-level appeals within 180 days",
+        reasoning=(
+            "The clinical record would support an appeal, and the window has "
+            "closed. MN-04 requires a first-level appeal within 180 days of "
+            "the remittance date; the remittance is dated 2025-09-15, roughly "
+            "nine months before. A strong case filed too late is still not a "
+            "case."
+        ),
+        certainty="rule",
+    ),
+
+    # ─────────────────────────────── Day 19: other categories
+    Label(
+        claim_id="CLM-100060",
+        decision="do_not_appeal",
+        rule="CARC 27, an eligibility dispute needs evidence",
+        reasoning=(
+            "Coverage terminated before the date of service and the record "
+            "contains no eligibility verification, plan letter or evidence of "
+            "retroactive reinstatement. This is resolved with evidence rather "
+            "than argument, and there is none. The balance is a coordination "
+            "of benefits question, not an appeal."
+        ),
+        certainty="rule",
+    ),
+    Label(
+        claim_id="CLM-100061",
+        decision="escalate",
+        rule="CARC 109, rebill the correct payer",
+        reasoning=(
+            "The claim went to the wrong payer. The route is to identify the "
+            "correct one and rebill, not to appeal. The agent cannot rebill, "
+            "and the timely filing clock on the correct payer has been running "
+            "since the date of service, which makes this time-sensitive. A "
+            "person has to act."
+        ),
+        certainty="rule",
+    ),
 ]
 
 

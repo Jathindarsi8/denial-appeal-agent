@@ -139,6 +139,17 @@ class DenialCodeLookup:
                "Charge is considered non-covered under the payer's policy."),
         "197": ("authorization_missing",
                 "Precertification, authorization, or notification was absent."),
+        # Day 19. These three had CARC reference documents in the corpus since
+        # day 6 and were never added here, so any claim carrying them took the
+        # unmapped path, searched the web, and escalated on unverified
+        # provenance regardless of what the record said. The table was the
+        # thing out of date, not the corpus.
+        "18": ("duplicate_claim",
+               "Exact duplicate claim or service."),
+        "27": ("other",
+               "Expenses incurred after coverage terminated."),
+        "109": ("other",
+                "Claim not covered by this payer or contractor."),
     }
 
     def lookup(self, carc: str) -> tuple[Optional[str], str]:

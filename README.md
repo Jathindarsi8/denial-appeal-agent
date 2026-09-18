@@ -187,6 +187,7 @@ python compare_providers.py --groq 3 --gemini 2       # where do providers disag
 python cases.py                                       # every claim and what the auth system says
 python golden.py                                      # the labelled set and its justifications
 python golden.py record                               # write it to the resolutions table
+python cases.py                                       # all 20 claims and what the auth system says
 python evaluate.py groq 20                            # pass@1, pass^k, and which control decided
 python run_cases.py groq                              # five cases on a named provider
 python costs.py rates                                 # what each model is priced at
@@ -1279,6 +1280,56 @@ resolutions table was empty until day 15. It only works now because there is
 ground truth to contradict — and it also means `run_cases.py` is no longer a
 clean test, since the agent can read the answer key. `evaluate.py` disables
 memory for that reason; `run_cases.py` does not.
+
+**Day 19** — Grew the golden set from five claims to twenty. The score fell
+from 88% to 54% without a line of agent code changing.
+
+Five was not a dataset. Each claim was worth twenty percentage points, so "88%
+correct" meant "one claim is unreliable" and little else. Three of the five were
+trivially stable and two carried every interesting result. It also left holes:
+rules existed for timely filing, duplicate claims and missing information that
+had never run against a claim, and policy documents sat in the corpus that
+nothing ever retrieved.
+
+The fifteen new claims are mostly ordinary. A duplicate that really is a
+duplicate. A missing provider NPI. A filing denial with a clearinghouse report
+on file, and another with only a screenshot, which TF-02 names explicitly as not
+accepted. Nothing exotic.
+
+Three CARC codes also turned out to be missing from the lookup table — 18, 27
+and 109 — despite having had reference documents in the corpus since day 6. Any
+claim carrying them took the unmapped path and escalated on unverified
+provenance regardless of the record. The table was out of date, not the corpus.
+
+```
+                  5 claims      20 claims
+pass@1                 88%            54%
+pass^k                 80%            40%
+model alone            70%            53%
+silent failures         0%            22%
+```
+
+*The agent has no "corrected claim" outcome, and that is four claims.*
+CLM-100051, 100052, 100053 and 100054 score 0/5 each, all failing the same way:
+the model proposes `do_not_appeal` and nothing stops it. A duplicate that is
+genuinely two procedures needs a modifier. A returned claim missing an NPI needs
+the NPI supplied. A revoked authorization needs a person. The agent can appeal,
+close, or escalate, and none of those is "fix and resubmit", so it closes. That
+is a product gap rather than a model failure, and it is 20% of the set.
+
+*The first real over-blocking.* CLM-100047 scores 0/5 with the model correct on
+every run. Timely filing with a clearinghouse acceptance report on file, which
+TF-02 names as accepted proof. The model proposes appeal and a rule overrules it
+to escalate, five times out of five. Nine runs across the set are correct
+proposals refused by a rule. Every previous evaluation had zero.
+
+*Silent failures went from 0 to 22.* Day 17's rule only knows about
+authorization evidence. The new categories have no equivalent, so
+`do_not_appeal` is once again the unguarded exit — which is exactly the shape of
+the day 16 finding, reappearing in categories the rule was never written for.
+
+The honest reading: 88% was never a property of this system. It was a property
+of a five-claim test set, and fifteen claims of ordinary variety took it to 54%.
 
 ## Plan
 
